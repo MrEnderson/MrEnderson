@@ -1,0 +1,310 @@
+{
+  "version": "v0.2.0",
+  "release_name": "Multi-Provider Agent Orchestration",
+  "phase": "CONTRACT_DESIGN_ONLY",
+  "predecessor_version": "v0.1.3",
+  "predecessor_commit": "be667b177f27839f5a370939bca045b7fb06eb4c",
+  "predecessor_tag": "v0.1.3",
+  "architecture_status": "DRAFT",
+  "hostile_review": {
+    "conducted": true,
+    "finding_count": 12,
+    "finding_ids": [
+      "F-01", "F-02", "F-03", "F-04", "F-05", "F-06",
+      "F-07", "F-08", "F-09", "F-10", "F-11", "F-12"
+    ],
+    "all_findings_remediated_or_registered": true
+  },
+  "central_authority": {
+    "statement": "Models possess intelligence, not authority. Agents possess delegated responsibility, not inherent authority. Jarvis remains the authority boundary.",
+    "chain": [
+      "human_owner",
+      "jarvis_control_plane",
+      "governed_agents_or_providers",
+      "proposed_work",
+      "existing_control_plane",
+      "authorized_execution"
+    ]
+  },
+  "trust_boundaries": [
+    {"entity": "human_owner", "trust": "root_of_authority"},
+    {"entity": "jarvis_control_plane", "trust": "authority_boundary"},
+    {"entity": "ai_providers", "trust": "untrusted_compute"},
+    {"entity": "models", "trust": "untrusted_output"},
+    {"entity": "agents", "trust": "delegated_responsibility_only"},
+    {"entity": "sub_agents", "trust": "delegated_responsibility_only"},
+    {"entity": "external_research", "trust": "untrusted_data"},
+    {"entity": "external_documents_or_content", "trust": "untrusted_data"},
+    {"entity": "memory_or_context", "trust": "trusted_storage_untrusted_origin_content"},
+    {"entity": "tool_adapters", "trust": "trusted_execution_surface_gated"},
+    {"entity": "credentials", "trust": "never_disclosed_to_models"},
+    {"entity": "external_systems", "trust": "untrusted_reached_via_tool_adapters_only"},
+    {"entity": "future_business_units", "trust": "isolated_trust_domain"},
+    {"entity": "future_infrastructure_nodes", "trust": "untrusted_compute_target_scheduled_not_chosen"}
+  ],
+  "provider_rules": {
+    "entities": [
+      "ProviderDefinition",
+      "ModelDefinition",
+      "ProviderCapability",
+      "ProviderRequest",
+      "ProviderResponse",
+      "ProviderHealth",
+      "ProviderSelection",
+      "ProviderFailure"
+    ],
+    "registration_grants_execution_authority": false,
+    "router_selection_must_be_durable_and_explainable": true,
+    "fallback_may_weaken_privacy_or_permission_or_budget_policy": false,
+    "implemented_in_this_phase": false
+  },
+  "agent_rules": {
+    "identity_fields": [
+      "agent_id", "name", "role", "status", "reports_to", "objective_scope",
+      "provider_model_policy", "allowed_capability_requests", "permission_ceiling",
+      "model_budget", "external_spending_ceiling", "context_scope", "memory_scope",
+      "delegation_rights", "escalation_policy", "lifecycle_state", "audit_identity"
+    ],
+    "role_or_title_grants_authority": false,
+    "identity_source": "jarvis_trusted_records_only",
+    "model_supplied_identity_claims_trusted": false,
+    "implemented_in_this_phase": false
+  },
+  "delegation_rules": {
+    "fields": [
+      "delegation_id", "parent_agent_id", "child_agent_id", "objective_id", "task_scope",
+      "allowed_outputs", "allowed_capability_requests", "permission_ceiling", "budget_ceiling",
+      "context_scope", "memory_scope", "created_at", "expires_at", "status"
+    ],
+    "invariant": "child_authority ⊆ parent_effective_authority",
+    "may_increase_authority": false,
+    "may_preserve_or_reduce_authority": true
+  },
+  "authority_rules": {
+    "effective_authority_is_intersection_of": [
+      "system_policy", "owner_policy", "objective_authority", "requesting_agent_authority",
+      "delegation_authority", "child_agent_ceiling", "tool_policy", "permission_tier",
+      "applicable_budget", "applicable_approval_state"
+    ],
+    "resolution_rule": "most_restrictive_applicable_constraint_wins",
+    "unknown_authority_behavior": "fail_closed",
+    "single_delegation_lineage_per_action": true,
+    "cross_delegation_union_allowed": false,
+    "no_authority_laundering": {
+      "delegation_chains_increase_authority": false,
+      "replanning_increases_authority": false,
+      "retries_increase_authority": false,
+      "provider_fallback_increases_authority": false,
+      "failure_recovery_increases_authority": false
+    }
+  },
+  "context_rules": {
+    "principle": "minimum_necessary_disclosure",
+    "flow": [
+      "agent", "context_request", "authorization", "relevance_retrieval",
+      "sensitivity_filtering", "provenance_preservation", "minimum_context_package", "provider"
+    ],
+    "default_full_memory_access_to_agents_or_providers": false,
+    "data_classification_levels": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED", "SECRET_CREDENTIAL"],
+    "classification_persists_through": ["delegation", "transformation", "storage"],
+    "broader_scope_storage_without_reauthorization_allowed": false
+  },
+  "credential_rules": {
+    "flow": [
+      "agent", "capability_request", "jarvis", "permission_or_approval",
+      "tool_adapter", "credential_broker", "external_service"
+    ],
+    "models_receive_raw_secrets": false,
+    "expectations": ["redaction", "least_privilege", "scoped_credentials", "audit_on_use"]
+  },
+  "provenance_rules": {
+    "fields": [
+      "content_id", "source_type", "source_reference", "trust_classification",
+      "sensitivity_classification", "retrieved_by", "retrieved_at", "transformations",
+      "derived_from", "agent_or_model_responsible_for_transformation"
+    ],
+    "transformation_upgrades_trust": false,
+    "external_content_trust_default": "untrusted"
+  },
+  "invocation_rules": {
+    "record_fields": [
+      "invocation_id", "agent_id", "delegation_id", "objective_id", "provider", "model",
+      "task_class", "context_references", "sensitivity_classification", "request_hash",
+      "response_hash", "token_usage", "estimated_cost", "latency", "status",
+      "failure_classification", "timestamps"
+    ],
+    "raw_sensitive_prompt_storage_required": false,
+    "model_output_direct_execution_allowed": false,
+    "validation_stages": [
+      "transport_validation", "schema_validation", "semantic_validation",
+      "provenance_validation", "evidence_validation", "policy_validation",
+      "authority_validation", "permission_evaluation", "approval_evaluation",
+      "budget_evaluation"
+    ]
+  },
+  "budget_rules": {
+    "compute_model_budget_examples": ["model_calls", "input_tokens", "output_tokens", "estimated_provider_cost", "retry_allowance"],
+    "business_spending_authority_examples": ["advertising_spend", "purchases", "subscriptions", "bank_or_payment_activity"],
+    "model_budget_grants_external_financial_authority": false,
+    "hierarchical_budget_child_may_exceed_parent_delegation": false,
+    "aggregate_child_delegation_may_exceed_parent_remaining_capacity": false,
+    "accounting_model": "atomic_reservation",
+    "concurrent_overspend_prevention_required": true
+  },
+  "permission_compatibility": {
+    "tiers": [
+      {"tier": "P0", "meaning": "internal_reasoning_or_analysis"},
+      {"tier": "P1", "meaning": "read_only_or_search"},
+      {"tier": "P2", "meaning": "internal_creation_draft_local_artifact"},
+      {"tier": "P3", "meaning": "reversible_external_change"},
+      {"tier": "P4", "meaning": "consequential_external_send_publish_delete_submit"},
+      {"tier": "P5", "meaning": "money_security_install_privileged_os"}
+    ],
+    "agent_title_overrides_permission_tier": false,
+    "preserved_v0_1_3_components": [
+      "research_evidence_readiness", "decision_gate", "permission_engine", "approval_engine",
+      "budget_engine", "durable_executor", "tool_registry", "verification",
+      "failure_intelligence", "retry", "replanning", "reconciliation",
+      "crash_restart_recovery", "qa", "executive_reporting"
+    ]
+  },
+  "approval_binding_rules": {
+    "bound_to": [
+      "recipient", "destination", "external_system", "quantity", "financial_amount",
+      "content_hash", "requesting_agent", "scope"
+    ],
+    "material_mutation_invalidates_approval": true,
+    "requires_reevaluation_on_mismatch": true,
+    "material_vs_non_material_definition_owner": "action_class_definition_not_executing_agent"
+  },
+  "denial_persistence_rules": {
+    "denied_action_record_required": true,
+    "keyed_by": ["action_identity", "semantic_intent"],
+    "checked_against": [
+      "reframing", "splitting", "redelegation", "provider_switching",
+      "waiting_or_retrying", "new_child_agent"
+    ],
+    "evasion_bypasses_denial": false
+  },
+  "self_approval_rules": {
+    "agent_may_approve_own_privileged_action": false,
+    "parent_may_approve_child_action_requiring_human_approval": false,
+    "qa_agent_may_satisfy_approval_requirement": false,
+    "role_title_implies_approval_authority": false,
+    "provider_claimed_approval_trusted": false
+  },
+  "coding_agent_rules": {
+    "protected_targets": [
+      "permission_engine", "approval_engine", "budget_engine",
+      "architecture_or_security_contract", "compliance_validator_scripts",
+      "security_invariant_tests", "migration_history", "frozen_release_artifacts"
+    ],
+    "agent_may_modify_protected_targets_as_ordinary_change": false,
+    "protected_target_change_requires_distinct_human_gated_workflow": true,
+    "agent_may_modify_tests_to_make_own_change_pass": false
+  },
+  "self_improvement_rules": {
+    "candidate_may_modify_its_own_evaluator": false,
+    "deployment_requires_explicit_authorization_distinct_from_testing": true,
+    "self_labeled_deployment_as_testing_bypasses_gate": false,
+    "deployment_authority_attaches_to_action_not_performing_agent": true
+  },
+  "multi_business_rules": {
+    "tenant_scope_is_explicit_authorization_dimension": true,
+    "relevance_ranking_can_substitute_for_authorization": false,
+    "simultaneous_multi_tenant_assignment_grants_combined_scope": false
+  },
+  "infrastructure_rules": {
+    "resource_scheduling_may_alter_permission_or_privacy_policy": false,
+    "node_failure_permits_privacy_policy_override": false
+  },
+  "audit_integrity_rules": {
+    "durable_records_mutable_after_write": false,
+    "corrections_require_superseding_record": true,
+    "replay_or_duplicate_invocation_detection_required": true,
+    "fabricated_or_dangling_lineage_fails_closed": true,
+    "request_response_hash_consistency_required": true
+  },
+  "implementation_sensitive_requirements": [
+    {
+      "id": "ISR-01",
+      "requirement": "denial_persistence_must_detect_semantic_material_equivalence_not_literal_equality",
+      "invariant_reference": "SI-21",
+      "owning_phase": "v0.2.4-v0.2.7",
+      "defers_or_weakens_invariant": false,
+      "completion_bar": "hostile_test_suite_exercising_all_denial_evasion_patterns_must_fail_to_bypass"
+    },
+    {
+      "id": "ISR-02",
+      "requirement": "protected_target_changes_require_distinct_human_gated_policy_change_workflow_mechanically_enforced",
+      "invariant_reference": "SI-16",
+      "owning_phase": "v0.2.8-v0.2.9",
+      "defers_or_weakens_invariant": false,
+      "completion_bar": "hostile_benchmark_must_confirm_protected_target_modification_is_mechanically_blocked"
+    }
+  ],
+  "fail_closed_conditions": [
+    "unknown_provider", "unknown_model", "unknown_agent", "unknown_capability",
+    "missing_delegation", "expired_delegation", "invalid_authority_chain",
+    "missing_context_authorization", "privacy_incompatibility", "budget_exhaustion",
+    "malformed_structured_output", "unknown_tool_adapter", "missing_approval",
+    "stale_approval", "approval_hash_mismatch", "tampered_invocation_or_result_records"
+  ],
+  "security_invariants": [
+    {"id": "SI-01", "level": "MUST_NOT", "text": "Models possess intelligence, not authority."},
+    {"id": "SI-02", "level": "MUST_NOT", "text": "Agents possess delegated responsibility, not inherent authority."},
+    {"id": "SI-03", "level": "MUST", "text": "Jarvis remains the authority boundary."},
+    {"id": "SI-04", "level": "MUST", "text": "Agent authority may only remain equal or decrease through delegation."},
+    {"id": "SI-05", "level": "MUST_NOT", "text": "No provider/model/agent may bypass the Jarvis control plane."},
+    {"id": "SI-06", "level": "MUST_NOT", "text": "Tool availability does not imply permission."},
+    {"id": "SI-07", "level": "MUST", "text": "Model output is untrusted until validated."},
+    {"id": "SI-08", "level": "MUST", "text": "External content remains untrusted through transformations."},
+    {"id": "SI-09", "level": "SHOULD", "text": "Secrets are consumed by controlled adapters rather than exposed to models."},
+    {"id": "SI-10", "level": "MUST", "text": "Context disclosure follows minimum necessary access."},
+    {"id": "SI-11", "level": "MUST_NOT", "text": "Provider fallback may not weaken security/privacy policy."},
+    {"id": "SI-12", "level": "MUST_NOT", "text": "AI/model budgets do not grant business spending authority."},
+    {"id": "SI-13", "level": "MUST_NOT", "text": "Agents cannot approve their own privileged actions."},
+    {"id": "SI-14", "level": "MUST_NOT", "text": "Development authority does not imply merge/deployment authority."},
+    {"id": "SI-15", "level": "MUST", "text": "Self-improvement must be isolated, tested, versioned and rollback-capable."},
+    {"id": "SI-16", "level": "MUST_NOT", "text": "Ordinary agents cannot weaken security policy."},
+    {"id": "SI-17", "level": "MUST", "text": "Consequential actions require durable provenance."},
+    {"id": "SI-18", "level": "MUST_NOT", "text": "Failure recovery cannot increase authority."},
+    {"id": "SI-19", "level": "MUST_NOT", "text": "Retry/replan cannot increase authority."},
+    {"id": "SI-20", "level": "MUST_NOT", "text": "Delegation cannot be used for authority laundering."},
+    {"id": "SI-21", "level": "MUST_NOT", "text": "Human-denied actions cannot be reframed/delegated to evade denial."},
+    {"id": "SI-22", "level": "MUST", "text": "Unknown capabilities fail closed."},
+    {"id": "SI-23", "level": "MUST", "text": "Provider selection must be explainable/auditable."},
+    {"id": "SI-24", "level": "MUST_NOT", "text": "Sensitive context may not silently migrate to a less-trusted provider."},
+    {"id": "SI-25", "level": "MUST", "text": "Frozen v0.1.3 security guarantees remain invariants unless explicitly superseded through reviewed/versioned change."}
+  ],
+  "prohibited_capabilities": [
+    "unrestricted_shell",
+    "unrestricted_browser",
+    "email_sending",
+    "publishing",
+    "financial_execution",
+    "autonomous_purchasing",
+    "software_installation",
+    "admin_or_root_access",
+    "nas_administration",
+    "autonomous_deployment",
+    "autonomous_self_modification",
+    "distributed_worker_infrastructure",
+    "uncontrolled_agent_to_agent_execution",
+    "new_external_side_effect_tool_adapters"
+  ],
+  "planned_phases": [
+    {"phase": "v0.2.0", "scope": "Architecture + Security Contracts"},
+    {"phase": "v0.2.1", "scope": "Provider Abstraction"},
+    {"phase": "v0.2.2", "scope": "Provider Registry + Capability Metadata"},
+    {"phase": "v0.2.3", "scope": "Provider Router + Health/Cost/Fallback Policy"},
+    {"phase": "v0.2.4", "scope": "Agent Identity + Agent Registry"},
+    {"phase": "v0.2.5", "scope": "Delegation + Authority Attenuation"},
+    {"phase": "v0.2.6", "scope": "Context Broker + Provenance + Data Boundaries"},
+    {"phase": "v0.2.7", "scope": "Durable Model Invocation + AI Budget Accounting"},
+    {"phase": "v0.2.8", "scope": "Multi-Agent Orchestration"},
+    {"phase": "v0.2.9", "scope": "Hostile Security / Prompt-Injection Benchmark"},
+    {"phase": "v0.2.10", "scope": "End-to-End Multi-Provider Benchmark"},
+    {"phase": "v0.2_FREEZE", "scope": "Freeze"}
+  ]
+}
