@@ -78,6 +78,38 @@ def test_nested_metadata_and_provider_metadata_are_frozen():
         response.provider_metadata["tags"].append("c")
 
 
+def test_default_valued_dict_fields_are_also_frozen_not_only_explicit_ones():
+    """v0.2.2 discovery: Pydantic does NOT run field_validator on a field's
+    default_factory value unless the model sets validate_default=True — so
+    every dict field above was ONLY frozen when a caller explicitly passed
+    a value; the (far more common) case of leaving metadata/
+    generation_parameters/details at their empty-dict default was silently
+    still mutable. Fixed by adding validate_default=True to the shared
+    _FROZEN ConfigDict in both contracts.py and failures.py. This test
+    constructs every affected type with ZERO explicit dict arguments."""
+    definition = ProviderDefinition(provider_id="x", display_name="X", provider_type="FAKE")
+    with pytest.raises(TypeError):
+        definition.metadata["k"] = "v"
+
+    model = ModelDefinition(model_id="m", provider_id="x", display_name="M")
+    with pytest.raises(TypeError):
+        model.metadata["k"] = "v"
+
+    request = ProviderRequest(provider_id="x", model_id="m", input="hi")
+    with pytest.raises(TypeError):
+        request.generation_parameters["k"] = "v"
+    with pytest.raises(TypeError):
+        request.metadata["k"] = "v"
+
+    response = ProviderResponse(request_id="r1", provider_id="x", model_id="m")
+    with pytest.raises(TypeError):
+        response.provider_metadata["k"] = "v"
+
+    failure = ProviderFailure(category=ProviderFailureCategory.TIMEOUT, message="x", provider_id="x")
+    with pytest.raises(TypeError):
+        failure.details["k"] = "v"
+
+
 def test_provider_failure_details_are_frozen():
     failure = ProviderFailure(
         category=ProviderFailureCategory.PERMANENT_PROVIDER_ERROR,

@@ -11,6 +11,7 @@ import enum
 
 from app.providers.contracts import (
     ModelDefinition,
+    ModelOwnershipError,
     ProviderCapability,
     ProviderDefinition,
     ProviderRequest,
@@ -72,19 +73,6 @@ def default_fake_model(
 def _require_valid_mode(mode: FakeProviderMode | None) -> None:
     if mode is not None and not isinstance(mode, FakeProviderMode):
         raise TypeError(f"mode must be a FakeProviderMode member or None, got {mode!r}")
-
-
-class ModelOwnershipError(ValueError):
-    """Raised at `FakeProvider` construction when the given `ModelDefinition`
-    claims a `provider_id` different from the provider's own
-    `ProviderDefinition` (hostile-review §13: a provider must not
-    invoke/claim a model belonging to another provider). Model ownership is
-    validated ONCE here, at construction — a static configuration
-    invariant, not a per-request concern; the requested `model_id` (a
-    different question: "does THIS provider serve the model this request
-    asked for") is validated per-request in `generate()` and raises
-    `UNSUPPORTED_MODEL` instead (see contract §14's requirement for an
-    explicit, single validation owner for each check)."""
 
 
 class FakeProvider:

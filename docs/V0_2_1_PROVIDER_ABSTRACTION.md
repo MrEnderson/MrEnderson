@@ -149,6 +149,17 @@ untouched and unrelated at the code level (only conceptually analogous).
 
 ## Deep immutability
 
+**v0.2.2 correction:** the `deep_freeze` mechanism below originally only
+ran when a caller explicitly passed a value for a dict/list-valued field —
+Pydantic does not run `field_validator` on a field's `default_factory`
+value unless the model sets `validate_default=True`. The far more common
+case (leaving `metadata`/`generation_parameters`/`details` at their
+empty-dict default) was therefore silently still mutable. Fixed by adding
+`validate_default=True` to the shared `_FROZEN` `ConfigDict` in both
+`contracts.py` and `failures.py` — see
+`tests/test_provider_hardening.py::test_default_valued_dict_fields_are_also_frozen_not_only_explicit_ones`.
+The description below is accurate as of that fix.
+
 `ConfigDict(frozen=True)` only blocks *reassigning* a Pydantic field —
 it does nothing to a mutable object already sitting in that field. A
 hostile review confirmed this was exploitable: `ProviderRequest.

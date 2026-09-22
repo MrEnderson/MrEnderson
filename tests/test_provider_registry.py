@@ -48,12 +48,27 @@ def test_duplicate_provider_id_rejected():
         registry.register(FakeProvider())
 
 
-def test_duplicate_with_replace_true_succeeds():
+def test_duplicate_provider_id_rejected_even_with_identical_redefinition():
+    """v0.2.2 identity hardening superseded v0.2.1's `replace=True`
+    administrative-replacement escape hatch (this test's old name/behavior
+    was `test_duplicate_with_replace_true_succeeds`): a hostile review
+    found no production caller ever used it and no operational need for
+    runtime provider replacement, so `ProviderRegistry.register()` no
+    longer accepts a `replace` argument at all -- duplicate registration
+    is now unconditional, even for a byte-for-byte identical redefinition.
+    (`ToolAdapterRegistry`/`ToolRegistry` are untouched and keep their own
+    `replace=True`.)"""
     registry = ProviderRegistry()
     registry.register(FakeProvider())
-    replacement = FakeProvider()
-    registry.register(replacement, replace=True)
-    assert registry.get("fake") is replacement
+    with pytest.raises(DuplicateProviderError):
+        registry.register(FakeProvider())
+    assert registry.get("fake") is not None  # original registration untouched
+
+
+def test_register_no_longer_accepts_a_replace_keyword():
+    import inspect
+
+    assert "replace" not in inspect.signature(ProviderRegistry.register).parameters
 
 
 def test_unknown_provider_lookup_fails_closed():

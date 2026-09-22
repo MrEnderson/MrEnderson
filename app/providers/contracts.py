@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.providers.frozen import deep_freeze
 
-_FROZEN = ConfigDict(frozen=True, extra="forbid")
+_FROZEN = ConfigDict(frozen=True, extra="forbid", validate_default=True)
 
 
 def _new_id() -> str:
@@ -77,6 +77,20 @@ def validate_display_name(value: str) -> str:
     if len(value) > _MAX_DISPLAY_NAME_LENGTH:
         raise ValueError(f"must not exceed {_MAX_DISPLAY_NAME_LENGTH} characters")
     return value
+
+
+class ModelOwnershipError(ValueError):
+    """Raised whenever a `ModelDefinition` claims a `provider_id` different
+    from the provider it is being associated with — a provider must not
+    invoke/claim a model belonging to another provider (hostile-review
+    v0.2.1 §13, v0.2.2 §13). Lives here (not in `fake_provider.py`, where
+    it originated) because both `FakeProvider` construction (a single
+    provider/model pair) and `ProviderRegistry.register` (a provider with
+    a whole batch of models, v0.2.2) need to raise the exact same error for
+    the exact same invariant; `registry.py` must not depend on
+    `fake_provider.py`, a test-only leaf module, to get at it. Re-exported
+    from `app.providers.fake_provider` unchanged for backward
+    compatibility with existing imports."""
 
 
 class ProviderCapability(str, enum.Enum):
@@ -268,3 +282,21 @@ class ProviderResponse(BaseModel):
         read-only property, not a field, so it can never be set to True by
         any caller or any provider-supplied content."""
         return False
+
+
+class CompatibleModel(BaseModel):
+    """A single descriptive catalogue-query result (v0.2.2 — Provider
+    Registry + Capability Metadata). A candidate description ONLY:
+    `frozen=True, extra="forbid"` means there is no way to attach
+    `selected`/`recommended`/`preferred`/`routing_score`/`rank`/`priority`/
+    `fallback_order` to this type without an explicit field addition to
+    this class — a future v0.2.3 router cannot smuggle a selection signal
+    through this type by construction. `effective_capabilities` is the
+    already-computed `provider ∩ model` intersection (never a union) —
+    see `app.providers.catalog.effective_capabilities`."""
+
+    model_config = _FROZEN
+
+    provider_id: str
+    model_id: str
+    effective_capabilities: frozenset[ProviderCapability] = Field(default_factory=frozenset)

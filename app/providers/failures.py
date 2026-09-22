@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.providers.contracts import validate_identifier
 from app.providers.frozen import deep_freeze
 
-_FROZEN = ConfigDict(frozen=True, extra="forbid")
+_FROZEN = ConfigDict(frozen=True, extra="forbid", validate_default=True)
 
 
 def _now() -> datetime:
