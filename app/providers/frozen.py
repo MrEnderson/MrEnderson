@@ -22,22 +22,27 @@ from typing import Any
 
 class FrozenDict(dict):
     """A `dict` whose mutating methods raise. Still a real `dict` for
-    `isinstance`, iteration, and (de)serialization purposes."""
+    `isinstance`, iteration, and (de)serialization purposes. `__ior__`
+    (`|=`) is blocked explicitly: dict's in-place union does not route
+    through the blocked `update` (hostile review B-11). Explicit base-class
+    calls such as `dict.__setitem__(frozen, ...)` are not prevented --
+    same-process Python is not a security boundary."""
 
     def _blocked(self, *args: Any, **kwargs: Any) -> Any:
         raise TypeError("this mapping is frozen and cannot be mutated after construction")
 
-    __setitem__ = __delitem__ = update = setdefault = pop = popitem = clear = _blocked  # type: ignore[assignment]
+    __setitem__ = __delitem__ = __ior__ = update = setdefault = pop = popitem = clear = _blocked  # type: ignore[assignment]
 
 
 class FrozenList(list):
     """A `list` whose mutating methods raise. Still a real `list` for
-    `isinstance`, iteration, and (de)serialization purposes."""
+    `isinstance`, iteration, and (de)serialization purposes. `__imul__`
+    (`*=`) is blocked explicitly, like `__iadd__` (hostile review B-11)."""
 
     def _blocked(self, *args: Any, **kwargs: Any) -> Any:
         raise TypeError("this sequence is frozen and cannot be mutated after construction")
 
-    __setitem__ = __delitem__ = __iadd__ = append = extend = insert = remove = pop = popitem = clear = sort = reverse = _blocked  # type: ignore[assignment]
+    __setitem__ = __delitem__ = __iadd__ = __imul__ = append = extend = insert = remove = pop = popitem = clear = sort = reverse = _blocked  # type: ignore[assignment]
 
 
 def deep_freeze(value: Any) -> Any:

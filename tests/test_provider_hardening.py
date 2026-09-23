@@ -121,6 +121,136 @@ def test_provider_failure_details_are_frozen():
         failure.details["nested"]["list"].append(3)
 
 
+# --- B-11: inherited in-place operators (|= on dict, *= on list) ------------
+
+
+def test_b11_in_place_operators_cannot_mutate_request_at_any_depth_and_hash_is_stable():
+    """B-11 (found during the v0.2.4 hostile review): `dict.__ior__` and
+    `list.__imul__` do not route through the blocked `update`/`extend`, so
+    `|=` / `*=` silently mutated "frozen" generation_parameters and changed
+    compute_request_hash. Every reachable frozen level is attacked."""
+    request = _request(
+        generation_parameters={"temperature": 0.0, "stop": ["x"], "nested": {"inner": [1, 2], "k": "v"}},
+    )
+    twin = request.model_copy()
+    hash_before = compute_request_hash(request)
+    dump_before = request.model_dump(mode="json")
+
+    top = request.generation_parameters
+    with pytest.raises(TypeError):
+        top |= {"temperature": 2.0}
+    nested = request.generation_parameters["nested"]
+    with pytest.raises(TypeError):
+        nested |= {"k": "hijacked"}
+    stop = request.generation_parameters["stop"]
+    with pytest.raises(TypeError):
+        stop *= 2
+    inner = request.generation_parameters["nested"]["inner"]
+    with pytest.raises(TypeError):
+        inner *= 3
+    with pytest.raises(TypeError):
+        inner += [3]
+
+    assert request.generation_parameters == {"temperature": 0.0, "stop": ["x"], "nested": {"inner": [1, 2], "k": "v"}}
+    assert compute_request_hash(request) == hash_before
+    assert request.model_dump(mode="json") == dump_before
+    assert request == twin
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.__setitem__("x", 1), lambda d: d.__delitem__("a"), lambda d: d.update(x=1),
+        lambda d: d.setdefault("x", 1), lambda d: d.pop("a"), lambda d: d.popitem(),
+        lambda d: d.clear(), lambda d: d.__ior__({"x": 1}),
+    ],
+    ids=["setitem", "delitem", "update", "setdefault", "pop", "popitem", "clear", "ior"],
+)
+def test_b11_frozen_dict_mutation_matrix(mutate):
+    request = _request(generation_parameters={"a": 1})
+    with pytest.raises(TypeError):
+        mutate(request.generation_parameters)
+    assert request.generation_parameters == {"a": 1}
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda l: l.__setitem__(0, 9), lambda l: l.__setitem__(slice(0, 1), [9, 9]), lambda l: l.__delitem__(0),
+        lambda l: l.append(9), lambda l: l.extend([9]), lambda l: l.insert(0, 9), lambda l: l.pop(),
+        lambda l: l.remove(2), lambda l: l.clear(), lambda l: l.reverse(), lambda l: l.sort(),
+        lambda l: l.__iadd__([9]), lambda l: l.__imul__(2),
+    ],
+    ids=["setitem", "setslice", "delitem", "append", "extend", "insert", "pop", "remove", "clear",
+         "reverse", "sort", "iadd", "imul"],
+)
+def test_b11_frozen_list_mutation_matrix(mutate):
+    request = _request(generation_parameters={"items": [2, 1]})
+    with pytest.raises(TypeError):
+        mutate(request.generation_parameters["items"])
+    assert request.generation_parameters["items"] == [2, 1]
+
+
+def test_b11_in_place_operators_blocked_on_every_deep_frozen_contract():
+    definition = ProviderDefinition(provider_id="x", display_name="X", provider_type="FAKE", metadata={"t": [1]})
+    model = ModelDefinition(model_id="m", provider_id="x", display_name="M", metadata={"t": [1]})
+    response = ProviderResponse(
+        request_id="r1", provider_id="x", model_id="m",
+        structured_output={"items": [1]}, provider_metadata={"t": [1]},
+    )
+    failure = ProviderFailure(
+        category=ProviderFailureCategory.TIMEOUT, message="x", provider_id="x", details={"t": [1]},
+    )
+    response_hash = compute_response_hash(response)
+    for frozen_mapping in (
+        definition.metadata, model.metadata, response.structured_output, response.provider_metadata, failure.details,
+    ):
+        with pytest.raises(TypeError):
+            frozen_mapping |= {"injected": True}
+        items = next(iter(frozen_mapping.values()))
+        with pytest.raises(TypeError):
+            items *= 2
+        assert "injected" not in frozen_mapping
+        assert len(items) == 1
+    assert compute_response_hash(response) == response_hash
+
+
+def test_b11_non_mutating_operators_and_deep_freeze_behavior_unchanged():
+    request = _request(generation_parameters={"a": 1, "items": [1], "nested": {"b": (2, 3)}})
+    params = request.generation_parameters
+    assert isinstance(params, dict) and isinstance(params["items"], list)
+    assert params | {"c": 3} == {"a": 1, "items": [1], "nested": {"b": [2, 3]}, "c": 3}  # new plain dict
+    assert params["items"] * 2 == [1, 1] and params["items"] + [2] == [1, 2]  # new plain lists
+    assert params == {"a": 1, "items": [1], "nested": {"b": [2, 3]}}
+    assert ProviderRequest.model_validate_json(request.model_dump_json()) == request
+
+
+def test_b11_caller_owned_input_mutation_after_construction_has_no_effect():
+    source = {"nested": {"inner": [1]}, "stop": ["x"]}
+    request = _request(generation_parameters=source)
+    hash_before = compute_request_hash(request)
+    source["nested"]["inner"].append(2)
+    source["stop"] *= 2
+    source |= {"new": 1}
+    assert request.generation_parameters == {"nested": {"inner": [1]}, "stop": ["x"]}
+    assert compute_request_hash(request) == hash_before
+
+
+def test_b11_explicit_base_class_calls_are_outside_the_contract():
+    """Documents the trust boundary honestly: the frozen containers block
+    every ordinary mutation API and operator, but same-process code that
+    deliberately calls the base implementation still succeeds. This is
+    NOT a protected path; the test pins the documented limitation."""
+    from app.providers.frozen import FrozenDict, FrozenList
+
+    mapping = FrozenDict({"a": 1})
+    dict.__setitem__(mapping, "a", 2)
+    assert mapping["a"] == 2
+    sequence = FrozenList([1])
+    list.append(sequence, 2)
+    assert sequence == [1, 2]
+
+
 # --- model_copy / model_construct bypass (hostile review §18/§41) ----------
 
 
