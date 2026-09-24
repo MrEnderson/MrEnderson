@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -182,6 +183,18 @@ def test_t10_reason_is_the_authoritative_ceiling_code(artifacts):
         "?? jarvis/delegation_engine.py",  # production code under another name/path
         " M app/decision_intelligence/permission_engine.py",
         "?? migrations/versions/abc123_delegation.py",
+        # v0.2.5.1: the approved design is committed and may no longer change
+        " M docs/V0_2_5_DELEGATION_AND_AUTHORITY_SECURITY_DESIGN.md",
+        " M docs/v0.2.5_delegation_authority_design.json",
+        # v0.2.5.1: only the exact contract/algebra files may exist in the package
+        "?? app/authority_contracts/evaluator.py",
+        "?? app/authority_contracts/store.py",
+        # F04-D / F04-G: the historical flag authorizes no runtime path or later stage
+        "?? app/delegation/__init__.py",
+        "?? app/authority/__init__.py",
+        "?? docs/V0_2_5_2_DELEGATION_RECORDS_AND_STORE.md",
+        "?? tests/test_v0252_delegation_store.py",
+        "?? docs/V0_2_6_CONTEXT_BROKER.md",
     ],
 )
 def test_changed_file_allowlist_rejects_other_files(monkeypatch, status_line):
@@ -211,6 +224,143 @@ def test_da03_hostile_checks_all_fail_closed(artifacts):
     assert [c["id"] for c in data["da03_hostile_checks"]] == checker._DA03_CHECK_IDS
     assert {c["expected_result"] for c in data["da03_hostile_checks"]} == {"FAIL_CLOSED"}
     assert data["p5_boundary"]["p5_proposal_outcome"] == "STOP_AT_AUTHORIZATION_BOUNDARY"
+
+
+@pytest.mark.parametrize(
+    "rel_path,class_name,allowed",
+    [
+        # v0.2.5.1 contracts: only inside the authority_contracts package
+        ("app/authority_contracts/contracts.py", "AuthorityScope", True),
+        ("app/authority_contracts/contracts.py", "PrincipalRef", True),
+        ("app/authority_contracts/contracts.py", "ObjectiveRef", True),
+        ("app/decision_intelligence/schemas.py", "AuthorityScope", False),
+        ("app/agent_identity/contracts.py", "PrincipalRef", False),
+        ("app/providers/contracts.py", "PTier", False),
+        ("app/security/objectives.py", "ObjectiveRef", False),
+        # later-stage contracts: never, not even inside the package
+        ("app/authority_contracts/contracts.py", "DelegationRecord", False),
+        ("app/authority_contracts/contracts.py", "RootAuthorization", False),
+        ("app/authority_contracts/algebra.py", "RedelegationPolicy", False),
+        ("app/authority_contracts/algebra.py", "AuthorityEvaluation", False),
+        ("app/authority_contracts/algebra.py", "DelegationStore", False),
+        ("app/tools/engine.py", "AuthorityEngine", False),
+    ],
+)
+def test_contract_class_placement(tmp_path, rel_path, class_name, allowed):
+    target = tmp_path / rel_path
+    target.parent.mkdir(parents=True)
+    target.write_text(f"class {class_name}:\n    pass\n", encoding="utf-8")
+    problems = checker._check_contract_class_placement(tmp_path)
+    assert (problems == []) is allowed, problems
+
+
+def test_v0251_package_may_exist_but_not_runtime_paths(monkeypatch):
+    real_git = checker._git
+
+    def fake_git(*args):
+        if args[:2] == ("status", "--porcelain") and "-uall" in args:
+            return "?? app/authority_contracts/contracts.py"
+        if args[:2] == ("status", "--porcelain"):
+            return "?? app/authority_contracts/"
+        return real_git(*args)
+
+    monkeypatch.setattr(checker, "_git", fake_git)
+    problems = checker.check_repository(_REPO_ROOT)
+    assert not any("allowlist" in p or "app/ or migrations/" in p for p in problems), problems
+
+
+# --------------------------------------------------------------------------
+# F-04: historical design-checkpoint flags vs the current phase allowance
+# --------------------------------------------------------------------------
+
+_V0251_PORCELAIN = "\n".join(
+    (" M " if p.startswith(("scripts/", "tests/test_v025_")) else "?? ") + p
+    for p in sorted(checker._ALLOWED_CHANGED_FILES)
+)
+
+
+def test_f04a_design_artifacts_equal_the_approved_commit():
+    import subprocess
+
+    for rel in (checker._MD_PATH, checker._JSON_PATH):
+        # exit code 0 only if the working-tree content equals the committed blob
+        result = subprocess.run(
+            ["git", "diff", "--quiet", checker._APPROVED_DESIGN_COMMIT, "--", rel.as_posix()],
+            cwd=_REPO_ROOT,
+        )
+        assert result.returncode == 0, rel
+
+
+def test_f04b_historical_flag_does_not_block_the_exact_v0251_file_set(monkeypatch, artifacts):
+    data, md = artifacts
+    assert data["implementation_authorized"] is False  # historical, unchanged
+    assert checker._CHECKPOINT_LINE in md
+    assert checker.check_design_artifacts(data, md) == []
+    real_git = checker._git
+
+    def fake_git(*args):
+        if args[:2] == ("status", "--porcelain") and "-uall" in args:
+            return _V0251_PORCELAIN
+        if args[:2] == ("status", "--porcelain"):
+            return "?? app/authority_contracts/"
+        return real_git(*args)
+
+    monkeypatch.setattr(checker, "_git", fake_git)
+    assert checker.check_repository(_REPO_ROOT) == []
+
+
+@pytest.mark.parametrize("changed", [checker._MD_PATH.as_posix(), checker._JSON_PATH.as_posix()])
+def test_f04f_design_artifact_change_rejected_even_when_committed(monkeypatch, changed):
+    """A later commit that edits the design would leave `git status` clean;
+    the content comparison against 1e242b8 still rejects it."""
+    real_git = checker._git
+
+    def fake_git(*args):
+        if args[:2] == ("diff", "--name-only"):
+            return changed
+        return real_git(*args)
+
+    monkeypatch.setattr(checker, "_git", fake_git)
+    assert any("approved design artifacts differ" in p for p in checker.check_repository(_REPO_ROOT))
+
+
+def test_f04d_forbidden_runtime_paths_rejected(tmp_path):
+    for rel in checker._FORBIDDEN_PATHS:
+        (tmp_path / rel).mkdir(parents=True)
+    problems = checker.check_repository(tmp_path)
+    for rel in ("app/delegation", "app/authority"):
+        assert f"forbidden implementation path exists: {rel}" in problems
+
+
+def test_f04_phase_record_is_present_and_narrow():
+    doc = (_REPO_ROOT / checker._V0251_DOC_PATH).read_text(encoding="utf-8")
+    assert checker.check_phase_record(doc) == []
+
+
+@pytest.mark.parametrize("mutate", [
+    # widening the authorized phase or dropping a NOT AUTHORIZED line fails
+    lambda t: t.replace("v0.2.5.1 only (pure contracts + algebra)", "v0.2.5.1+ (all v0.2.5 stages)"),
+    lambda t: re.sub(r"(?m)^(v0\.2\.5\.2\+ += )NOT AUTHORIZED$", r"\1AUTHORIZED", t),
+    lambda t: re.sub(r"(?m)^v0\.2\.6 += NOT AUTHORIZED$", "", t),
+    lambda t: re.sub(r"immutable\s+historical", "current", t),
+])
+def test_f04g_phase_record_widening_rejected(mutate):
+    doc = (_REPO_ROOT / checker._V0251_DOC_PATH).read_text(encoding="utf-8")
+    tampered = mutate(doc)
+    assert tampered != doc
+    assert checker.check_phase_record(tampered)
+
+
+def test_git_output_keeps_leading_porcelain_status_column(monkeypatch):
+    """F-02: stripping the whole output ate the leading space of the first
+    porcelain line (" M path" -> "M path"), mis-parsing its path."""
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout=" M scripts/check_v025_design_contract.py\n?? x.py\n")
+
+    monkeypatch.setattr(checker.subprocess, "run", fake_run)
+    assert checker._git("status", "--porcelain") == " M scripts/check_v025_design_contract.py\n?? x.py"
 
 
 def test_forbidden_implementation_paths_absent():

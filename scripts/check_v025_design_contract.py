@@ -8,10 +8,15 @@ delegation code to exercise, and this checker deliberately imports none.
 It verifies, WITHOUT touching the database, `.env`, the network,
 credentials, providers or any ToolAdapter:
 
-  - both design artifacts exist and the JSON is valid;
+  - both design artifacts exist, the JSON is valid, and their committed
+    content is identical to the approved design commit 1e242b8;
   - status == DESIGN_ONLY, implementation_authorized is false,
     production_code_created is false, and no artifact uses a
-    COMPLETE / IMPLEMENTED / PRODUCTION_READY status;
+    COMPLETE / IMPLEMENTED / PRODUCTION_READY status. These are HISTORICAL
+    assertions about the design checkpoint, not the current repository
+    state (F-04): the later, separately authorized v0.2.5.1 phase is recorded
+    in docs/V0_2_5_1_AUTHORITY_CONTRACTS_AND_ALGEBRA.md, whose phase-status
+    lines (v0.2.5.1 only; v0.2.5.2+ and v0.2.6 NOT AUTHORIZED) are checked;
   - every required invariant (DI-*), proof obligation (PO-*), threat
     (T-*), revocation threat (R-*), denial-laundering row (D-*) and change
     request (CR-*) is present in the JSON, and each ID also appears in the
@@ -43,12 +48,16 @@ credentials, providers or any ToolAdapter:
   - the Markdown answers all 22 design review questions and carries the
     human-review checkpoint line;
   - forbidden implementation paths (`app/delegation`, `app/authority`) are
-    absent, and no module under `app/` defines a delegation/authority
-    contract class;
-  - no tracked file under `app/`, `migrations/` or `alembic.ini` is
-    modified, and the ONLY new or modified files anywhere in the repository
-    are the four v0.2.5 design files (whole-repo `git status` allowlist, which
-    catches production code placed under any other name or path);
+    absent; the v0.2.5.1 pure contracts (PTier, PrincipalKind, PrincipalRef,
+    ObjectiveRef, AuthorityScope) are defined ONLY in `app/authority_contracts/`,
+    and no module anywhere under `app/` defines a later-stage delegation or
+    authority class (records, roots, stores, evaluation, engines);
+  - no file under `app/` outside `app/authority_contracts/`, under
+    `migrations/` or `alembic.ini` is new or modified, and the ONLY new or
+    modified files anywhere in the repository are the exact v0.2.5.1 file
+    set (whole-repo `git status` allowlist, which catches production code
+    placed under any other name or path; the committed v0.2.5 design
+    artifacts are no longer in it);
   - the Alembic revision graph (parsed from files, no DB) has the single
     head `7f2c9a1e4b6d`;
   - the v0.1.3 tag still peels to the frozen commit;
@@ -89,14 +98,31 @@ _EXPECTED_V013_COMMIT = "be667b177f27839f5a370939bca045b7fb06eb4c"
 _EXPECTED_ALEMBIC_HEAD = "7f2c9a1e4b6d"
 _EXPECTED_TOOL_ADAPTERS = ["file.create_sandboxed"]
 
+# F-04: the approved design artifacts are immutable; their committed content
+# must equal this commit's blobs.
+_APPROVED_DESIGN_COMMIT = "1e242b827f46de42064ea0965f59e8c2bf82591c"
+# The single phase the Human Owner has authorized since the design checkpoint.
+_AUTHORIZED_PHASE = "v0.2.5.1"
+_V0251_DOC_PATH = Path("docs") / "V0_2_5_1_AUTHORITY_CONTRACTS_AND_ALGEBRA.md"
+_V0251_PHASE_RECORD = (
+    re.compile(r"^authorized_phase += v0\.2\.5\.1 only \(pure contracts \+ algebra\)$", re.MULTILINE),
+    re.compile(r"^v0\.2\.5\.2\+ += NOT AUTHORIZED$", re.MULTILINE),
+    re.compile(r"^v0\.2\.6 += NOT AUTHORIZED$", re.MULTILINE),
+    re.compile(r"immutable\s+historical\s+design-approval\s+evidence"),
+)
+
 _FORBIDDEN_PATHS = [Path("app") / "delegation", Path("app") / "authority"]
 _FORBIDDEN_STATUS_WORDS = ("COMPLETE", "IMPLEMENTED", "PRODUCTION_READY")
-# Contract names proposed by the design; none may exist as a class in app/.
+# v0.2.5.1 (Human-Owner-authorized pure contracts + algebra): these contract
+# names may exist, but only inside this package.
+_V0251_PACKAGE = "app/authority_contracts"
+_V0251_CONTRACT_CLASS_NAMES = {"PrincipalRef", "PrincipalKind", "PTier", "ObjectiveRef", "AuthorityScope"}
+# Later-stage contract names proposed by the design; none may exist as a class
+# anywhere in app/ (v0.2.5.2+ requires separate authorization).
 _DESIGN_ONLY_CLASS_NAMES = {
-    "PrincipalRef", "PrincipalKind", "PTier", "AuthorityScope", "RedelegationPolicy",
-    "RootAuthorization", "DelegationRequest", "DelegationRecord", "DelegationParentRef",
-    "RevocationRecord", "AuthorityEvaluation", "DelegationStore", "DelegationEngine",
-    "AuthorityEngine",
+    "RedelegationPolicy", "RootAuthorization", "DelegationRequest", "DelegationRecord",
+    "DelegationParentRef", "RevocationRecord", "AuthorityEvaluation", "SystemPolicyCeiling",
+    "DelegationStore", "DelegationEngine", "AuthorityEngine",
 }
 
 _CHECKPOINT_LINE = "NO v0.2.5 PRODUCTION IMPLEMENTATION HAS BEEN AUTHORIZED OR CREATED."
@@ -111,8 +137,11 @@ def _ids(prefix: str, count: int) -> list[str]:
 
 
 _ALLOWED_CHANGED_FILES = {
-    "docs/V0_2_5_DELEGATION_AND_AUTHORITY_SECURITY_DESIGN.md",
-    "docs/v0.2.5_delegation_authority_design.json",
+    "app/authority_contracts/__init__.py",
+    "app/authority_contracts/contracts.py",
+    "app/authority_contracts/algebra.py",
+    "docs/V0_2_5_1_AUTHORITY_CONTRACTS_AND_ALGEBRA.md",
+    "tests/test_v0251_hostile_authority_algebra.py",
     "scripts/check_v025_design_contract.py",
     "tests/test_v025_design_contract.py",
 }
@@ -138,6 +167,12 @@ _DA03_APPROVED_RULE = (
     "separately designed, hostile-reviewed and Human-Owner-approved P5 "
     "authorization protocol."
 )
+# HISTORICAL design-checkpoint assertions (F-04). These flags record the
+# authorization state AT the v0.2.5 design checkpoint (_APPROVED_DESIGN_COMMIT)
+# and stay false forever as immutable design-approval evidence. They do not
+# describe later, separately Human-Owner-authorized phases: current phase
+# allowances live in check_repository() / check_phase_record() and cover
+# v0.2.5.1 only.
 _MUST_BE_FALSE = (
     "implementation_authorized", "production_code_created",
     "pipeline_integration_authorized", "migration_authorized",
@@ -466,28 +501,62 @@ def _git(*args: str) -> str | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    return out.stdout.strip()
+    # rstrip only: a leading space is the first porcelain status column (F-02).
+    return out.stdout.rstrip()
+
+
+def _check_contract_class_placement(repo_root: Path) -> list[str]:
+    """v0.2.5.1 contracts only inside the package; later-stage contracts nowhere."""
+    problems: list[str] = []
+    for path in (repo_root / "app").rglob("*.py"):
+        rel = path.relative_to(repo_root).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError) as exc:
+            problems.append(f"could not parse {rel}: {exc}")
+            continue
+        in_package = rel.startswith(_V0251_PACKAGE + "/")
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if node.name in _DESIGN_ONLY_CLASS_NAMES:
+                problems.append(f"design-only contract {node.name!r} is defined in production code: {rel}")
+            elif node.name in _V0251_CONTRACT_CLASS_NAMES and not in_package:
+                problems.append(f"v0.2.5.1 contract {node.name!r} is defined outside {_V0251_PACKAGE}: {rel}")
+    return problems
+
+
+def check_phase_record(md_text: str) -> list[str]:
+    """F-04: the v0.2.5.1 document must record that the historical design
+    flags are checkpoint evidence and that only v0.2.5.1 is authorized."""
+    return [
+        f"{_V0251_DOC_PATH.as_posix()} does not record the phase status {pattern.pattern!r}"
+        for pattern in _V0251_PHASE_RECORD
+        if not pattern.search(md_text)
+    ]
 
 
 def check_repository(repo_root: Path) -> list[str]:
     problems: list[str] = []
 
+    changed_design = _git("diff", "--name-only", _APPROVED_DESIGN_COMMIT, "--",
+                          _MD_PATH.as_posix(), _JSON_PATH.as_posix())
+    if changed_design is None:
+        problems.append(f"git unavailable: cannot compare the design artifacts with {_APPROVED_DESIGN_COMMIT}")
+    elif changed_design:
+        problems.append(f"approved design artifacts differ from {_APPROVED_DESIGN_COMMIT}: {changed_design!r}")
+
+    doc = repo_root / _V0251_DOC_PATH
+    if not doc.exists():
+        problems.append(f"missing phase record: {_V0251_DOC_PATH.as_posix()}")
+    else:
+        problems.extend(check_phase_record(doc.read_text(encoding="utf-8")))
+
     for rel in _FORBIDDEN_PATHS:
         if (repo_root / rel).exists():
             problems.append(f"forbidden implementation path exists: {rel.as_posix()}")
 
-    for path in (repo_root / "app").rglob("*.py"):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError) as exc:
-            problems.append(f"could not parse {path}: {exc}")
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name in _DESIGN_ONLY_CLASS_NAMES:
-                problems.append(
-                    f"design-only contract {node.name!r} is defined in production code: "
-                    f"{path.relative_to(repo_root).as_posix()}"
-                )
+    problems.extend(_check_contract_class_placement(repo_root))
 
     heads = _alembic_heads(repo_root / "migrations" / "versions")
     if heads != [_EXPECTED_ALEMBIC_HEAD]:
@@ -496,8 +565,15 @@ def check_repository(repo_root: Path) -> list[str]:
     modified = _git("status", "--porcelain", "--", "app", "migrations", "alembic.ini")
     if modified is None:
         problems.append("git unavailable: cannot verify app/ and migrations/ are unmodified")
-    elif modified:
-        problems.append(f"app/ or migrations/ has changes during a DESIGN_ONLY phase:\n{modified}")
+    else:
+        outside = [
+            line for line in modified.splitlines()
+            if not line[3:].strip().strip('"').startswith(_V0251_PACKAGE + "/")
+        ]
+        if outside:
+            problems.append(
+                "app/ or migrations/ has changes outside the v0.2.5.1 package:\n" + "\n".join(outside)
+            )
 
     everything = _git("status", "--porcelain", "-uall")
     if everything is None:
@@ -508,7 +584,7 @@ def check_repository(repo_root: Path) -> list[str]:
             if " -> " in path:
                 path = path.split(" -> ", 1)[1]
             if path not in _ALLOWED_CHANGED_FILES:
-                problems.append(f"file outside the v0.2.5 design allowlist is new/modified: {line.strip()}")
+                problems.append(f"file outside the v0.2.5.1 allowlist is new/modified: {line.strip()}")
 
     v013 = _git("rev-parse", "v0.1.3^{}")
     if v013 != _EXPECTED_V013_COMMIT:
@@ -551,9 +627,12 @@ def main() -> int:
             print(f"  - {p}")
         return 1
 
-    print("v0.2.5 DESIGN CONTRACT CHECK: OK (DESIGN_ONLY -- no implementation exists or was checked)")
+    print("v0.2.5 DESIGN CONTRACT CHECK: OK")
     print("  Human Owner design approval: DA-01..DA-10 recorded (DA-03 APPROVED_WITH_REWORDING)")
-    print("  implementation_authorized: false (design approval is not implementation authorization)")
+    print(f"  Historical design checkpoint ({_APPROVED_DESIGN_COMMIT[:7]}, artifacts unchanged): "
+          "status=DESIGN_ONLY, implementation_authorized=false")
+    print(f"  Current authorized phase: {_AUTHORIZED_PHASE} only (pure contracts + algebra); "
+          "v0.2.5.2+ and v0.2.6 NOT authorized")
     print(f"  Predecessor: {data.get('predecessor_version')} ({data.get('predecessor_commit')})")
     for key, expected in _REQUIRED_IDS.items():
         print(f"  {key}: {len(expected)} required IDs present")
