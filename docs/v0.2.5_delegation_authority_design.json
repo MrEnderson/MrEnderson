@@ -1,0 +1,1947 @@
+{
+  "version": "v0.2.5",
+  "release_name": "Delegation + Authority Attenuation",
+  "status": "DESIGN_ONLY",
+  "implementation_authorized": false,
+  "production_code_created": false,
+  "human_design_approval": "APPROVED",
+  "design_approved": true,
+  "design_approval_scope": "Human Owner approval of design decisions DA-01..DA-10 only; DESIGN_ONLY means no runtime implementation exists; design approval is not implementation authorization",
+  "pipeline_integration_authorized": false,
+  "migration_authorized": false,
+  "frozen_code_changes_authorized": false,
+  "p5_execution_protocol_authorized": false,
+  "v0_2_6_authorized": false,
+  "predecessor_version": "v0.2.4",
+  "predecessor_commit": "d10fbbbf4b697eba822a89495ae0ebd276b3101d",
+  "b11_commit": "21dc3d022165162550ca24c518a0fb11f445238d",
+  "central_invariant": "Delegation may preserve or reduce already-authorized scope. It may never create, amplify, infer, recover, combine, or manufacture authority that was not actually granted.",
+  "chosen_architecture": "E_hybrid_bounded_authority_scope",
+  "architecture_options_compared": [
+    "A_permission_ceiling_only",
+    "B_structured_capability_scope",
+    "C_capability_tokens",
+    "D_policy_intersection_object",
+    "E_hybrid_bounded_authority_scope"
+  ],
+  "authority_algebra": {
+    "carrier": "AuthorityScope \u222a {\u22a5}",
+    "bottom": "\u22a5 = NO_AUTHORITY: internal sentinel and evaluation outcome; never issuable, never storable, never 'unrestricted'",
+    "order": "partial order: dimension-wise product plus \u22a5 \u2264 everything; incomparable scopes exist and are never ranked",
+    "operations_defined": [
+      "leq",
+      "meet"
+    ],
+    "operations_forbidden": [
+      "join",
+      "union",
+      "wildcard",
+      "default_unlimited"
+    ],
+    "meet": "total; \u22a5 if any version differs, objective_ref differs, or action_types intersection is empty; else (min ceiling, \u2229 action_types, same objective_ref, min expires_at)",
+    "structure": "meet-semilattice with bottom per (schema_version, vocabulary_version); time outside the algebra",
+    "attenuation": "check-not-clip at issuance AND at evaluation (per-hop leq violations rejected, never clipped)",
+    "effective_scope": "defined only for an existing lineage: meet over the lineage clipped by SystemPolicyCeiling; no lineage => \u22a5",
+    "p_tier_mapping": "required_tier = max(T_floor(action_type), T_class(decision)); P3 only for EXTERNAL_ACTION \u2227 MEDIUM; EXTERNAL_ACTION LOW/HIGH/CRITICAL => P4; unknown => BLOCK; ownership moves to Permission Engine via CR-02"
+  },
+  "authority_scope_dimensions_v025": {
+    "schema_version": "Literal[1]; equality; exact-version evaluation; other versions fail closed (UNKNOWN_AUTHORITY_DIMENSION)",
+    "vocabulary_version": "int; equality; pins meaning of action_types strings; any vocabulary change bumps it (VERSION_MISMATCH)",
+    "permission_ceiling": "PTier P0..P4 (total order within dimension); P5 not issuable to agents in v0.2.5 (policy decision DA-03, Human-Owner approved with rewording)",
+    "action_types": "non-empty frozenset over the pinned vocabulary; subset order; no wildcard",
+    "objective_ref": "ObjectiveRef(objective_id, objective_version); equality of the pair; identical along a lineage; never text",
+    "expires_at": "required aware-UTC datetime (naive rejected); trusted clock; bounded by max TTL; child <= parent"
+  },
+  "record_level_redelegation": {
+    "redelegation": "None = 0 additional edges; otherwise (redelegable_scope <= scope, remaining_depth >= 1)",
+    "remaining_depth_semantics": "number of additional edges allowed below this edge; 1 => child allowed and child.redelegation must be None; 0 not representable",
+    "child_remaining_depth": "<= parent.remaining_depth - 1",
+    "depth": "1-based; root edge depth 1; child.depth = parent.depth + 1; child.depth + (child.remaining_depth or 0) <= SYSTEM_MAX_DEPTH"
+  },
+  "deferred_dimensions": {
+    "tenant_business_scope": "future tenancy phase; schema_version bump; older records confer no tenant authority and fail closed",
+    "resource_scope": "v0.2.8 orchestration / per-tool resource policy",
+    "data_classification_context_memory_scope": "v0.2.6",
+    "ai_inference_budget": "v0.2.7",
+    "business_financial_ceiling": "future business-spend design",
+    "tool_or_capability_classes": "not delegation; ToolRegistry/Permission Engine own it",
+    "not_before": "omitted; delegation effective from issued_at",
+    "rule": "absent dimension confers ZERO authority (never ALL); exact-version evaluation; no automatic upgrade; old records must be re-issued; no system may treat delegation-gate pass as satisfying a deferred dimension"
+  },
+  "none_empty_missing_semantics": {
+    "missing_field": "validation error (every scope field required)",
+    "empty_action_types": "nothing allowed; rejected at issuance as useless",
+    "redelegation_none": "redelegation forbidden",
+    "any_wildcard_string": "rejected",
+    "bottom": "\u22a5 is zero authority; never stored or issued",
+    "deferred_dimension": "zero authority in that dimension"
+  },
+  "principal_kinds": [
+    "HUMAN_OWNER",
+    "AGENT"
+  ],
+  "system_policy_role": "typed SystemPolicyCeiling; ceiling only, never evaluable alone, never a grantor; no lineage => \u22a5; root above ceiling rejected at issuance; tightening applies at evaluation; not overridable by RootAuthorization",
+  "root_authority": "RootAuthorization issued by HUMAN_OWNER only through an authenticated owner channel; owner_authorization_event_id unique across roots; root_request_digest binds content; DB integrity is a stated trust assumption; no signing in v0.2.5",
+  "lifecycle": {
+    "stored": "immutable DelegationRecord + immutable RevocationRecord (append-only)",
+    "computed_states": [
+      "EFFECTIVE",
+      "NOT_EFFECTIVE"
+    ],
+    "not_effective_reasons": [
+      "DELEGATION_REVOKED",
+      "DELEGATION_EXPIRED",
+      "UPSTREAM_INEFFECTIVE",
+      "PRINCIPAL_LIFECYCLE_EVENT",
+      "DELEGATOR_INACTIVE",
+      "DELEGATE_INACTIVE",
+      "CLOCK_UNTRUSTED"
+    ],
+    "mutable_status_field": false,
+    "one_shot_delegation": false,
+    "renewal_in_place": false,
+    "historical_belief": "append-only AUTHORITY_EVALUATED audit events; no mutable status",
+    "clock_rollback": "monotonic store high-water mark; now below mark => CLOCK_UNTRUSTED"
+  },
+  "revocation": {
+    "granularity": "whole_edge_only",
+    "reversible": false,
+    "cascade": "all descendants NOT_EFFECTIVE; records retained; never re-parented",
+    "authorized_revokers": [
+      "HUMAN_OWNER",
+      "edge_delegator",
+      "ancestor_delegator_in_lineage",
+      "delegate_renouncing_own_edge"
+    ],
+    "delegate_may_renounce_own_edge": true,
+    "id_reuse": false,
+    "duplicate": "idempotent no-op (first wins), audited",
+    "revoke_a_revocation": false,
+    "reason_code_security_relevant": false
+  },
+  "disabled_identities": {
+    "rule": "edge effective only if delegator (agent) and delegate are enabled now AND have no DISABLED/RETIRED lifecycle event in [issued_at, t]",
+    "issue_to_disabled_delegate": "fail_closed",
+    "delegate_disabled_after_issue": "permanently NOT_EFFECTIVE; re-enable does not restore",
+    "delegator_disabled_after_issue": "edge + descendants permanently NOT_EFFECTIVE; re-enable does not restore",
+    "re_enable_resurrects": false,
+    "revocation_equals_disable": false,
+    "dependency": "CR-04 durable append-only lifecycle history; integration precondition"
+  },
+  "multiple_delegations": "one leaf delegation per action; no composition",
+  "approval_separation": "ceiling check precedes approval-request creation; out-of-ceiling actions BLOCK; approval never mutates delegation; escalation = new human-issued delegation",
+  "pipeline_integration_point": "requester binding -> has_any_effective_lineage pre-check -> evaluate_permission (classify) -> delegation gate -> approval request only if gate passed; C' before durable-executor gates A/B/C recomputes permission+delegation; caller PermissionDecision is a consistency check only",
+  "final_boundary_revalidation": [
+    "requester_binding_matches",
+    "agent_active_and_no_lifecycle_event_since_issuance",
+    "delegation_effective",
+    "lineage_intact",
+    "not_revoked",
+    "not_expired",
+    "clock_not_below_high_water_mark",
+    "objective_ref_bound",
+    "required_tier_and_action_type_within_scope",
+    "permission_engine_result_recomputed",
+    "approval_valid_and_bound_to_requester_and_leaf",
+    "budget"
+  ],
+  "invariants": [
+    {
+      "id": "DI-01",
+      "text": "Delegation may preserve or reduce already-authorized scope; it never creates, amplifies, infers, recovers, combines or manufactures authority."
+    },
+    {
+      "id": "DI-02",
+      "text": "For every valid edge: scope(child) <= redelegable_scope(parent) in every dimension; for every chain: A0 >= A1 >= ... >= An."
+    },
+    {
+      "id": "DI-03",
+      "text": "The only authority roots are HUMAN_OWNER grants issued through the trusted non-agent layer; SYSTEM_POLICY is a ceiling every chain is intersected with, never a grantor."
+    },
+    {
+      "id": "DI-04",
+      "text": "Identity, title, role, display_name, metadata, provider, model and registration create zero authority."
+    },
+    {
+      "id": "DI-05",
+      "text": "A delegated ceiling is an upper bound, never a permission result; the Permission Engine still classifies every action."
+    },
+    {
+      "id": "DI-06",
+      "text": "Every consequential action names exactly one leaf delegation; its lineage is the only authority source considered; no union across lineages."
+    },
+    {
+      "id": "DI-07",
+      "text": "Delegation records are immutable and append-only; effective state is computed, never stored as mutable status."
+    },
+    {
+      "id": "DI-08",
+      "text": "Revocation removes whole edges only, is irreversible, and makes every descendant ineffective; descendants are never re-parented."
+    },
+    {
+      "id": "DI-09",
+      "text": "Delegation never carries, implies or widens approval; approval never mutates or widens a delegation."
+    },
+    {
+      "id": "DI-10",
+      "text": "Unknown, missing, ambiguous or unparseable security state fails closed; missing never means unlimited; there are no wildcards."
+    },
+    {
+      "id": "DI-11",
+      "text": "A delegation_id is a reference, never a bearer credential; trust comes only from the trusted store, never from field resemblance or schema validity."
+    },
+    {
+      "id": "DI-12",
+      "text": "Authority evaluation is deterministic for the same trusted records, system policy, registry state, objective, action requirements and trusted time snapshot."
+    },
+    {
+      "id": "DI-13",
+      "text": "Delegation cannot authorize modifying the delegation system, Permission/Approval/Budget engines, security contracts, validators, frozen artifacts or migrations as an ordinary change."
+    },
+    {
+      "id": "DI-14",
+      "text": "Future execution revalidates the complete lineage at the final authorization boundary with a trusted clock."
+    },
+    {
+      "id": "DI-15",
+      "text": "The authority algebra is closed with an explicit bottom \u22a5 (zero authority). \u22a5 is never issuable or storable and never means unrestricted. [HR-01]"
+    },
+    {
+      "id": "DI-16",
+      "text": "The requesting principal is a typed PrincipalRef bound once, durably, when the Action is created. No later caller may substitute it, and no default requester holds authority. [HR-03]"
+    },
+    {
+      "id": "DI-17",
+      "text": "Any lifecycle event of the delegator or delegate since issuance permanently ends an edge's effectiveness. Re-enabling never resurrects authority. [HR-04]"
+    },
+    {
+      "id": "DI-18",
+      "text": "Authority is pinned to exact schema, action-vocabulary and objective versions. An absent or unknown dimension grants zero authority. [HR-05, HR-09, HR-10]"
+    },
+    {
+      "id": "DI-19",
+      "text": "System policy is a typed ceiling that only narrows. It is never evaluable alone and never originates authority, and owner roots cannot override it. [HR-07]"
+    }
+  ],
+  "proof_obligations": [
+    {
+      "id": "PO-01",
+      "text": "No delegation increases any authority dimension.",
+      "test_strategy": "Property test: for random parent scope P and random request R, attenuate(P, R) either raises or returns C with leq(C, P) true in every dimension."
+    },
+    {
+      "id": "PO-02",
+      "text": "Every effective delegation has a valid trusted HUMAN_OWNER root.",
+      "test_strategy": "Resolver test: lineage walk terminates at a RootAuthorization issued by the configured owner principal; any other terminal fails closed."
+    },
+    {
+      "id": "PO-03",
+      "text": "Every child delegation is bounded by its complete ancestor chain, recomputed at evaluation, not trusted from issuance.",
+      "test_strategy": "Store-tamper test: a record injected past issuance validation with scope wider than its parent's redelegable_scope is REJECTED (LINEAGE_INVALID) by the evaluator's per-hop leq check, never silently clipped (check-not-clip applies at evaluation too)."
+    },
+    {
+      "id": "PO-04",
+      "text": "Revoked or expired upstream authority invalidates dependent effective authority.",
+      "test_strategy": "Multi-hop test: revoke/expire each edge of A->B->C->D in turn; every descendant becomes NOT_EFFECTIVE with UPSTREAM_INEFFECTIVE."
+    },
+    {
+      "id": "PO-05",
+      "text": "Unknown state fails closed.",
+      "test_strategy": "Exhaustive enum tests; unknown schema_version/dimension/status/principal kind; missing parent; corrupt lineage."
+    },
+    {
+      "id": "PO-06",
+      "text": "Identity/title/provider/model/metadata cannot create authority.",
+      "test_strategy": "Structural tests: no scope field reads AgentDefinition role/display_name/metadata/provider preferences; hostile titles produce empty authority."
+    },
+    {
+      "id": "PO-07",
+      "text": "Approval cannot mutate standing delegation.",
+      "test_strategy": "Approve an action, then evaluate a second identical-tier action: ceiling unchanged; no store write occurs on approval."
+    },
+    {
+      "id": "PO-08",
+      "text": "Delegation cannot manufacture approval.",
+      "test_strategy": "Structural: DelegationRecord/AuthorityScope have no approval-shaped field; an approval-gated action within ceiling still requires REQUIRE_APPROVAL flow."
+    },
+    {
+      "id": "PO-09",
+      "text": "The lineage keys (root_delegation_id, objective_ref) are identical for every descendant, so a future exact-payload DenialRecord is visible across redelegation. (Downgraded [HR-11]: v0.2.5 does not itself stop a denied intent being requested again.)",
+      "test_strategy": "Every descendant lineage yields the same root/objective key; an exact-hash denial fixture matches from any descendant; a reworded payload is asserted as a documented NON-catch."
+    },
+    {
+      "id": "PO-10",
+      "text": "Changing provider/model cannot change delegated authority.",
+      "test_strategy": "Structural: no provider/model field participates in scope or evaluation; evaluation is identical across model swaps."
+    },
+    {
+      "id": "PO-11",
+      "text": "A new agent identity begins with no inherited delegation.",
+      "test_strategy": "Register a clone (same role/display_name/preferences): zero effective delegations."
+    },
+    {
+      "id": "PO-12",
+      "text": "Authority evaluation is deterministic for the same trusted inputs.",
+      "test_strategy": "Evaluate twice with identical snapshot/clock: byte-identical AuthorityEvaluation; permuted store insertion order gives identical result."
+    },
+    {
+      "id": "PO-13",
+      "text": "Every chain is principal-acyclic and continuous: delegate(edge i) == delegator(edge i+1), no principal repeats, self-delegation impossible.",
+      "test_strategy": "Cycle and discontinuity fixtures at issuance and evaluation (store-tamper)."
+    },
+    {
+      "id": "PO-14",
+      "text": "Security-critical records are deeply immutable through all ordinary mutation APIs (B-11) and admitted only as exact-type, revalidated, store-owned snapshots (v0.2.4 B-01).",
+      "test_strategy": "Mutation matrix incl. |= and *=; subclass/model_construct/model_copy smuggling fixtures."
+    },
+    {
+      "id": "PO-15",
+      "text": "The algebra is closed: meet is total on AuthorityScope \u222a {\u22a5}; \u22a5 is never issued, never stored, and never treated as unrestricted. [HR-01]",
+      "test_strategy": "Property tests: meet is commutative, associative and idempotent over random scopes, including disjoint sets and differing objectives; meet \u2264 both inputs; \u22a5 is absorbing; issuance that normalizes to \u22a5 is rejected."
+    },
+    {
+      "id": "PO-16",
+      "text": "The requester is bound once at Action creation and every later check reads that binding; no default requester holds authority. [HR-03]",
+      "test_strategy": "Resume or recovery by a caller with a different requester \u2192 REQUESTER_UNBOUND; a 'system' or empty requester \u2192 NO_EFFECTIVE_DELEGATION."
+    },
+    {
+      "id": "PO-17",
+      "text": "An edge is effective only if neither delegator nor delegate has had a lifecycle event since issuance; re-enabling never restores it. [HR-04]",
+      "test_strategy": "Disable then re-enable at every hop of a 10-hop chain \u2192 all descendants stay non-effective."
+    },
+    {
+      "id": "PO-18",
+      "text": "Version pinning: a record with a different schema_version, vocabulary_version or objective_version grants no authority, and an absent dimension grants zero. [HR-05, HR-09, HR-10]",
+      "test_strategy": "v1 record under a v2 evaluator \u2192 UNKNOWN_AUTHORITY_DIMENSION; vocabulary bump \u2192 VERSION_MISMATCH; objective edit \u2192 OBJECTIVE_MISMATCH."
+    },
+    {
+      "id": "PO-19",
+      "text": "System policy only narrows: no lineage \u21d2 \u22a5 whatever the ceiling; a root above the ceiling is rejected; tightening the ceiling lowers the effective scope. [HR-07]",
+      "test_strategy": "Empty-store evaluation with a permissive ceiling \u2192 \u22a5; owner P4 root under a P2 ceiling \u2192 rejected; tightening after issuance \u2192 effective P2."
+    }
+  ],
+  "threat_matrix": [
+    {
+      "id": "T-01",
+      "attack": "Parent spoofing: agent claims 'my parent is jarvis.ceo' / reports_to=human.owner",
+      "precondition": "Agent can emit arbitrary text/JSON",
+      "expected_fail_closed_behavior": "No lineage exists unless a trusted DelegationRecord chain resolves; claim is inert data (UNKNOWN_DELEGATION)",
+      "required_invariant": "DI-11, PO-02",
+      "future_enforcement_owner": "delegation store + resolver (v0.2.5)",
+      "test_strategy": "Feed claim through every public API; assert zero records and NO_EFFECTIVE_DELEGATION"
+    },
+    {
+      "id": "T-02",
+      "attack": "Role/title escalation: role=CEO/CFO/ROOT/OWNER/ADMIN",
+      "precondition": "Registered agent with authority-sounding role",
+      "expected_fail_closed_behavior": "Zero authority; scope never derived from AgentDefinition fields",
+      "required_invariant": "DI-04, PO-06",
+      "future_enforcement_owner": "v0.2.4 registry + v0.2.5 evaluator",
+      "test_strategy": "Parametrized hostile roles; evaluation without delegation is NO_EFFECTIVE_DELEGATION"
+    },
+    {
+      "id": "T-03",
+      "attack": "Provider/model identity masquerade: provider_id or model_id equal to an agent_id or 'human.owner'",
+      "precondition": "Provider/model registries contain colliding strings",
+      "expected_fail_closed_behavior": "No PrincipalRef is ever built from provider/model ids; namespaces distinct",
+      "required_invariant": "DI-04, PO-10",
+      "future_enforcement_owner": "v0.2.5 contracts",
+      "test_strategy": "Namespace-collision fixtures across ProviderRegistry/AgentRegistry/store"
+    },
+    {
+      "id": "T-04",
+      "attack": "Self-delegation A->A",
+      "precondition": "Agent holds a redelegable scope",
+      "expected_fail_closed_behavior": "Issuance rejected (SELF_DELEGATION); evaluator also rejects tampered record",
+      "required_invariant": "PO-13",
+      "future_enforcement_owner": "store + evaluator (v0.2.5)",
+      "test_strategy": "Issue and tamper fixtures"
+    },
+    {
+      "id": "T-05",
+      "attack": "Sibling authority theft: Developer uses Finance's delegation (same parent)",
+      "precondition": "Two children of one parent",
+      "expected_fail_closed_behavior": "Leaf delegate must equal requesting agent; siblings share no authority",
+      "required_invariant": "DI-06",
+      "future_enforcement_owner": "evaluator (v0.2.5); orchestrator binding (integration)",
+      "test_strategy": "Evaluate Finance's delegation_id as Developer -> DELEGATE_MISMATCH"
+    },
+    {
+      "id": "T-06",
+      "attack": "Cyclic delegation A->B->C->A",
+      "precondition": "Redelegation permitted",
+      "expected_fail_closed_behavior": "Issuance rejects any delegate already present in the lineage (PRINCIPAL_CYCLE); record-level cycles impossible (append-only, parent must pre-exist); evaluator visited-set check",
+      "required_invariant": "PO-13",
+      "future_enforcement_owner": "store + evaluator",
+      "test_strategy": "Principal-cycle and tampered record-cycle fixtures"
+    },
+    {
+      "id": "T-07",
+      "attack": "Depth bypass by chaining further than allowed",
+      "precondition": "remaining_depth=0 at a hop",
+      "expected_fail_closed_behavior": "Issuance rejected (DEPTH_EXCEEDED); child remaining_depth <= parent - 1",
+      "required_invariant": "DI-02",
+      "future_enforcement_owner": "store (v0.2.5)",
+      "test_strategy": "Property test over random chains"
+    },
+    {
+      "id": "T-08",
+      "attack": "Redelegation without permission",
+      "precondition": "Parent granted scope but redelegation=None",
+      "expected_fail_closed_behavior": "Issuance rejected (REDELEGATION_FORBIDDEN); acting scope never implies redelegable scope",
+      "required_invariant": "DI-02",
+      "future_enforcement_owner": "store",
+      "test_strategy": "Issue child from non-redelegable edge"
+    },
+    {
+      "id": "T-09",
+      "attack": "P3 -> P4 escalation",
+      "precondition": "Leaf ceiling P3; action classified P4",
+      "expected_fail_closed_behavior": "CEILING_EXCEEDED before any approval request is created; pipeline BLOCKs",
+      "required_invariant": "DI-05, PO-01",
+      "future_enforcement_owner": "evaluator + integration gate",
+      "test_strategy": "external_modify vs publish/send/delete fixtures"
+    },
+    {
+      "id": "T-10",
+      "attack": "P3 -> P5 escalation",
+      "precondition": "Leaf ceiling P3; financial/install/privileged action",
+      "expected_fail_closed_behavior": "CEILING_EXCEEDED; P5 is not issuable to agents in v0.2.5 at all",
+      "required_invariant": "DI-05",
+      "future_enforcement_owner": "store + evaluator",
+      "test_strategy": "Issue P5 to agent -> rejected; evaluate P5 action -> CEILING_EXCEEDED"
+    },
+    {
+      "id": "T-11",
+      "attack": "Multiple-delegation union: X from A and Y from B combined",
+      "precondition": "Agent holds two effective delegations",
+      "expected_fail_closed_behavior": "Each action names exactly one leaf; evaluation never consults a second lineage",
+      "required_invariant": "DI-06",
+      "future_enforcement_owner": "evaluator + Action binding (CR-01)",
+      "test_strategy": "Action needing X+Y under either lineage alone -> OUTSIDE_SCOPE"
+    },
+    {
+      "id": "T-12",
+      "attack": "Split-and-recombine: denied X+Y decomposed into child X and child Y",
+      "precondition": "Parent can issue to two children",
+      "expected_fail_closed_behavior": "v0.2.5 makes it ATTRIBUTABLE (shared root/objective lineage); DETECTION of emergent composition is future action-intent/orchestration policy",
+      "required_invariant": "DI-06, SI-21",
+      "future_enforcement_owner": "v0.2.8 orchestration + future intent layer (partial v0.2.5)",
+      "test_strategy": "Lineage attribution test; composition detection explicitly out of v0.2.5 scope"
+    },
+    {
+      "id": "T-13",
+      "attack": "Objective switching: delegation for Objective A used for Objective B",
+      "precondition": "Delegation bound to objective_id A",
+      "expected_fail_closed_behavior": "OBJECTIVE_MISMATCH; objective compared by durable id, never by text",
+      "required_invariant": "DI-06",
+      "future_enforcement_owner": "evaluator + Action binding (CR-01)",
+      "test_strategy": "Mismatched objective_id fixtures"
+    },
+    {
+      "id": "T-14",
+      "attack": "Tenant/business switching via namespace string",
+      "precondition": "agent_id business.alpha.* acting for beta",
+      "expected_fail_closed_behavior": "No authority from strings; tenancy is a future explicit scope dimension added by schema version (old records then fail closed)",
+      "required_invariant": "DI-10",
+      "future_enforcement_owner": "future tenancy phase; v0.2.5 schema versioning",
+      "test_strategy": "Namespace-prefix fixtures grant nothing; unknown schema_version fails closed"
+    },
+    {
+      "id": "T-15",
+      "attack": "Disabled delegate",
+      "precondition": "Delegate enabled=False",
+      "expected_fail_closed_behavior": "Issuance fails (DELEGATE_INACTIVE); evaluation also checks current enabled state",
+      "required_invariant": "PO-05",
+      "future_enforcement_owner": "store + evaluator",
+      "test_strategy": "Issue to disabled agent; disable after issue (future lifecycle)"
+    },
+    {
+      "id": "T-16",
+      "attack": "Disabled delegator",
+      "precondition": "Delegator disabled after issuing",
+      "expected_fail_closed_behavior": "Its edges and all descendants become permanently NOT_EFFECTIVE (PRINCIPAL_LIFECYCLE_EVENT); re-enabling never restores them (lifecycle-history rule, HR-04)",
+      "required_invariant": "PO-04",
+      "future_enforcement_owner": "evaluator + future agent lifecycle",
+      "test_strategy": "Cascade fixtures"
+    },
+    {
+      "id": "T-17",
+      "attack": "Revoked delegation replay",
+      "precondition": "Old delegation_id reused after revocation",
+      "expected_fail_closed_behavior": "REVOKED is permanent; ids never reused; replay yields NOT_EFFECTIVE",
+      "required_invariant": "DI-08, DI-11",
+      "future_enforcement_owner": "store + evaluator",
+      "test_strategy": "Revoke then evaluate; attempt re-issue with same id"
+    },
+    {
+      "id": "T-18",
+      "attack": "Expired delegation replay",
+      "precondition": "Delegation past expires_at",
+      "expected_fail_closed_behavior": "EXPIRED at trusted clock; no renewal in place",
+      "required_invariant": "DI-14",
+      "future_enforcement_owner": "evaluator",
+      "test_strategy": "Frozen-clock boundary tests (== expires_at is expired)"
+    },
+    {
+      "id": "T-19",
+      "attack": "Forged delegation_id",
+      "precondition": "Attacker guesses/knows an id",
+      "expected_fail_closed_behavior": "Id is a lookup key only; leaf delegate must equal requester; unknown id -> UNKNOWN_DELEGATION",
+      "required_invariant": "DI-11",
+      "future_enforcement_owner": "evaluator",
+      "test_strategy": "Random/known-foreign id fixtures"
+    },
+    {
+      "id": "T-20",
+      "attack": "Copied JSON delegation",
+      "precondition": "Valid record serialized and re-submitted",
+      "expected_fail_closed_behavior": "Schema-valid != trusted-issued; store accepts only issue() inputs, never records",
+      "required_invariant": "DI-11",
+      "future_enforcement_owner": "store",
+      "test_strategy": "Round-trip JSON into every API -> rejected"
+    },
+    {
+      "id": "T-21",
+      "attack": "Model-generated delegation",
+      "precondition": "Provider output contains delegator/delegate/permission",
+      "expected_fail_closed_behavior": "Untrusted data; no parsing path to the store",
+      "required_invariant": "DI-11, SI-07",
+      "future_enforcement_owner": "store",
+      "test_strategy": "ProviderResponse structured_output fixtures"
+    },
+    {
+      "id": "T-22",
+      "attack": "Approval laundering: A's approval for X used by B for Y",
+      "precondition": "A holds APPROVED request for Action X",
+      "expected_fail_closed_behavior": "Existing binding already rejects Y (action_id + action_hash); CR-01 additionally binds requesting principal + delegation_id so B cannot consume A's approval even for identical X",
+      "required_invariant": "DI-09",
+      "future_enforcement_owner": "approval engine (existing) + CR-01",
+      "test_strategy": "Cross-agent consumption fixtures after CR-01"
+    },
+    {
+      "id": "T-23",
+      "attack": "Denial laundering",
+      "precondition": "Action denied for agent A",
+      "expected_fail_closed_behavior": "See denial sub-matrix; v0.2.5 supplies lineage keys, not semantic matching",
+      "required_invariant": "SI-21, PO-09",
+      "future_enforcement_owner": "future DenialRecord (approval/orchestration layer) using v0.2.5 lineage",
+      "test_strategy": "Sub-matrix D-01..D-08"
+    },
+    {
+      "id": "T-24",
+      "attack": "Provider fallback resets authority",
+      "precondition": "Router falls back to another model",
+      "expected_fail_closed_behavior": "Authority references no provider/model; unchanged",
+      "required_invariant": "PO-10, SI-11",
+      "future_enforcement_owner": "v0.2.5 contracts (structural)",
+      "test_strategy": "Evaluate before/after routing change"
+    },
+    {
+      "id": "T-25",
+      "attack": "Agent model change resets authority",
+      "precondition": "Agent's preferred model changes",
+      "expected_fail_closed_behavior": "Delegation binds agent_id only",
+      "required_invariant": "PO-10",
+      "future_enforcement_owner": "v0.2.5 contracts",
+      "test_strategy": "Structural + evaluation equality"
+    },
+    {
+      "id": "T-26",
+      "attack": "Metadata authority smuggling",
+      "precondition": "Record carries notes/metadata",
+      "expected_fail_closed_behavior": "DelegationRecord has NO metadata; AuthorityScope is closed; free text impossible",
+      "required_invariant": "DI-10",
+      "future_enforcement_owner": "contracts",
+      "test_strategy": "extra=forbid fixtures incl. notes='P5 approved'"
+    },
+    {
+      "id": "T-27",
+      "attack": "Subclass smuggling (v0.2.4 B-01 class)",
+      "precondition": "Subclass loosens extra/frozen, adds permission=P5",
+      "expected_fail_closed_behavior": "Store/evaluator accept exact types only and revalidate into store-owned snapshots",
+      "required_invariant": "PO-14",
+      "future_enforcement_owner": "store",
+      "test_strategy": "Subclass fixtures per contract type"
+    },
+    {
+      "id": "T-28",
+      "attack": "model_construct / model_copy(update=) bypass",
+      "precondition": "In-process caller builds unvalidated record",
+      "expected_fail_closed_behavior": "Store never accepts records; issue() builds records itself from validated requests; evaluator revalidates",
+      "required_invariant": "PO-14",
+      "future_enforcement_owner": "store + evaluator",
+      "test_strategy": "Bypass fixtures"
+    },
+    {
+      "id": "T-29",
+      "attack": "Mutable nested authority (B-11 class)",
+      "precondition": "Scope contains mutable containers",
+      "expected_fail_closed_behavior": "Scopes use frozenset/tuple/enums only; no dict/list in security fields",
+      "required_invariant": "PO-14",
+      "future_enforcement_owner": "contracts",
+      "test_strategy": "Mutation matrix incl. |=, *=, nested"
+    },
+    {
+      "id": "T-30",
+      "attack": "Unknown authority dimension",
+      "precondition": "Record/schema from newer version or tampered",
+      "expected_fail_closed_behavior": "extra=forbid + schema_version whitelist -> UNKNOWN_AUTHORITY_DIMENSION",
+      "required_invariant": "DI-10",
+      "future_enforcement_owner": "contracts + evaluator",
+      "test_strategy": "Tampered dimension fixtures"
+    },
+    {
+      "id": "T-31",
+      "attack": "None / empty / missing confusion",
+      "precondition": "Optional or empty fields",
+      "expected_fail_closed_behavior": "Every scope field required; empty action set = nothing; redelegation None = forbidden; no field means 'unlimited'",
+      "required_invariant": "DI-10",
+      "future_enforcement_owner": "contracts",
+      "test_strategy": "Explicit semantics table tests"
+    },
+    {
+      "id": "T-32",
+      "attack": "Wildcard escalation ('*', 'ALL', 'ANY', 'UNLIMITED')",
+      "precondition": "String vocabularies",
+      "expected_fail_closed_behavior": "No wildcard exists; values validated against closed vocabularies",
+      "required_invariant": "DI-10",
+      "future_enforcement_owner": "contracts",
+      "test_strategy": "Wildcard strings rejected at issuance"
+    },
+    {
+      "id": "T-33",
+      "attack": "Constraint-removal escalation (revoke 'deny publish', keep grant)",
+      "precondition": "Scope with negative constraints",
+      "expected_fail_closed_behavior": "Scopes are positive allowlists only; revocation is whole-edge; nothing to remove",
+      "required_invariant": "DI-08",
+      "future_enforcement_owner": "contracts + store",
+      "test_strategy": "No revoke-dimension API exists (structural)"
+    },
+    {
+      "id": "T-34",
+      "attack": "Revocation race (evaluate -> revoke -> execute)",
+      "precondition": "Concurrent revocation",
+      "expected_fail_closed_behavior": "Final-boundary revalidation (C') inside the executor, serialized with revocation writes; residual in-flight window documented",
+      "required_invariant": "DI-14",
+      "future_enforcement_owner": "integration (durable executor, separately authorized)",
+      "test_strategy": "Deterministic interleaving tests in integration stage"
+    },
+    {
+      "id": "T-35",
+      "attack": "Stale cache of effective authority",
+      "precondition": "Future caching layer",
+      "expected_fail_closed_behavior": "No caching in v0.2.5; any future cache keyed by revocation watermark + trusted time",
+      "required_invariant": "DI-14",
+      "future_enforcement_owner": "future",
+      "test_strategy": "Design requirement only"
+    },
+    {
+      "id": "T-36",
+      "attack": "New agent implicit inheritance ('cto.helper')",
+      "precondition": "Agent registers a helper",
+      "expected_fail_closed_behavior": "Zero effective delegations until trusted issuance",
+      "required_invariant": "PO-11",
+      "future_enforcement_owner": "store + evaluator",
+      "test_strategy": "Register helper -> NO_EFFECTIVE_DELEGATION"
+    },
+    {
+      "id": "T-37",
+      "attack": "Same-role implicit inheritance",
+      "precondition": "Two agents share role/display_name",
+      "expected_fail_closed_behavior": "Authority binds to agent_id + lineage only",
+      "required_invariant": "PO-11, DI-04",
+      "future_enforcement_owner": "evaluator",
+      "test_strategy": "Clone fixtures"
+    },
+    {
+      "id": "T-38",
+      "attack": "Security-engine self-modification (Developer edits evaluator to gain P5)",
+      "precondition": "Coding agent with repository write",
+      "expected_fail_closed_behavior": "Protected targets not delegable as ordinary change; human-gated workflow (existing coding_agent_rules)",
+      "required_invariant": "DI-13, SI-14, SI-16",
+      "future_enforcement_owner": "future protected-target policy + existing coding_agent_rules",
+      "test_strategy": "Design requirement; protected-target action class in integration stage"
+    },
+    {
+      "id": "T-39",
+      "attack": "Financial-budget conflation (AI budget or CFO title implies spending)",
+      "precondition": "Agent has model budget or CFO role",
+      "expected_fail_closed_behavior": "No financial dimension in v0.2.5; P5 not issuable to agents; business spend stays with Permission+Approval+Budget",
+      "required_invariant": "SI-12",
+      "future_enforcement_owner": "future business-spend design",
+      "test_strategy": "Structural absence tests"
+    },
+    {
+      "id": "T-40",
+      "attack": "AI-budget conflation (delegated ceiling implies model budget or vice versa)",
+      "precondition": "Future v0.2.7 budgets",
+      "expected_fail_closed_behavior": "Delegation scope contains no inference budget; v0.2.7 budgets are separate and absence != unlimited there",
+      "required_invariant": "SI-12",
+      "future_enforcement_owner": "v0.2.7",
+      "test_strategy": "Structural absence tests"
+    },
+    {
+      "id": "T-41",
+      "attack": "Principal-kind confusion: agent registered with agent_id 'human.owner'",
+      "precondition": "v0.2.4 charset permits the string",
+      "expected_fail_closed_behavior": "PrincipalRef kind is part of identity; AGENT:'human.owner' is never HUMAN_OWNER",
+      "required_invariant": "DI-03",
+      "future_enforcement_owner": "contracts",
+      "test_strategy": "Collision fixture"
+    },
+    {
+      "id": "T-42",
+      "attack": "Chain discontinuity: edge i delegate != edge i+1 delegator",
+      "precondition": "Tampered or mis-issued records",
+      "expected_fail_closed_behavior": "LINEAGE_INVALID; issuance requires delegator == parent.delegate",
+      "required_invariant": "PO-13",
+      "future_enforcement_owner": "store + evaluator",
+      "test_strategy": "Tamper fixtures"
+    },
+    {
+      "id": "T-43",
+      "attack": "AI 'approval' via delegated helper (self-approval through delegation)",
+      "precondition": "Agent delegates to a controlled helper, treats helper output as approval",
+      "expected_fail_closed_behavior": "Approval requires a HUMAN_OWNER decided_by (CR-03); delegation has no approval semantics",
+      "required_invariant": "DI-09, SI-13",
+      "future_enforcement_owner": "approval engine (CR-03)",
+      "test_strategy": "decide_approval with AGENT principal rejected after CR-03"
+    },
+    {
+      "id": "T-44",
+      "attack": "Requester self-assertion: Action/plan content names the requesting agent (e.g. agent_type='finance') so a foreign leaf delegation passes the delegate==requester check",
+      "precondition": "Action/ActionPlan fields are model-influenced content",
+      "expected_fail_closed_behavior": "Requesting principal comes only from the control-plane invocation context (like today's requested_by); no content field is ever read as a principal",
+      "required_invariant": "DI-04, DI-06, DI-11",
+      "future_enforcement_owner": "integration (CR-01) + evaluator signature",
+      "test_strategy": "Evaluator takes requester as a separate trusted argument; fixtures where Action content names another agent -> DELEGATE_MISMATCH"
+    },
+    {
+      "id": "T-45",
+      "attack": "Algebra-bottom confusion: the meet of disjoint action sets or different objectives is treated as 'no restriction', or as undefined and then skipped",
+      "precondition": "Two scopes in a lineage, or a scope against the ceiling",
+      "expected_fail_closed_behavior": "Meet is total; the result \u22a5 \u2192 OUTSIDE_SCOPE (EMPTY_AUTHORITY)",
+      "required_invariant": "DI-15, PO-15",
+      "future_enforcement_owner": "scope algebra (v0.2.5.1)",
+      "test_strategy": "Property tests over disjoint and different-objective pairs"
+    },
+    {
+      "id": "T-46",
+      "attack": "Requester substitution on resume or recovery: a plan created for agent A is resumed by a caller passing requested_by=B",
+      "precondition": "Today requested_by is supplied again on each call and is not persisted on the Action or Plan",
+      "expected_fail_closed_behavior": "The requester is read only from the insert-once binding; a mismatch \u2192 REQUESTER_UNBOUND",
+      "required_invariant": "DI-16, PO-16",
+      "future_enforcement_owner": "integration (CR-01) + evaluator",
+      "test_strategy": "Resume with a different requester; crash-recovery replay"
+    },
+    {
+      "id": "T-47",
+      "attack": "Disable/re-enable resurrection",
+      "precondition": "The evaluator reads only the current enabled flag",
+      "expected_fail_closed_behavior": "Lifecycle-history rule: any event since issued_at ends effectiveness permanently",
+      "required_invariant": "DI-17, PO-17",
+      "future_enforcement_owner": "evaluator + future lifecycle history (CR-04)",
+      "test_strategy": "Disable then enable at each hop"
+    },
+    {
+      "id": "T-48",
+      "attack": "Old-schema new-dimension escalation: a v1 record is read as 'all tenants/resources/data classes' after v2 adds a dimension",
+      "precondition": "Schema upgrade",
+      "expected_fail_closed_behavior": "Exact-version evaluation; an absent dimension grants zero; re-issuance required",
+      "required_invariant": "DI-18, PO-18",
+      "future_enforcement_owner": "contracts + evaluator",
+      "test_strategy": "v1-under-v2 fixtures"
+    },
+    {
+      "id": "T-49",
+      "attack": "Root-record forgery or owner-event replay: one owner authorization event is reused to mint several roots, or a root row is inserted with a copied event id",
+      "precondition": "DB write access or a buggy caller",
+      "expected_fail_closed_behavior": "owner_authorization_event_id is unique across roots; root_request_digest is recomputed; issue_root is reachable only via the owner channel; DB integrity is a stated trust assumption",
+      "required_invariant": "DI-03, PO-02",
+      "future_enforcement_owner": "store + owner channel",
+      "test_strategy": "Duplicate event id; digest mismatch; call to issue_root from an agent path"
+    },
+    {
+      "id": "T-50",
+      "attack": "System-policy-as-grant bug: an empty lineage is evaluated as if it were the system ceiling",
+      "precondition": "Permissive ceiling, no delegation",
+      "expected_fail_closed_behavior": "No lineage \u21d2 \u22a5; the ceiling has no objective or expiry and cannot be evaluated alone",
+      "required_invariant": "DI-19, PO-19",
+      "future_enforcement_owner": "evaluator",
+      "test_strategy": "Empty-store evaluation"
+    },
+    {
+      "id": "T-51",
+      "attack": "Diamond lineage union: D holds edges from both B and C (both from A), and the evaluator unions them or picks the best",
+      "precondition": "Diamond graph",
+      "expected_fail_closed_behavior": "One named leaf; the walk follows immutable parents; no search; the audit records the chosen leaf",
+      "required_invariant": "DI-06",
+      "future_enforcement_owner": "evaluator",
+      "test_strategy": "Diamond fixtures asserting the second edge is never read"
+    },
+    {
+      "id": "T-52",
+      "attack": "Action vocabulary evolution: re-tiering or changing the meaning of an action_type string widens old delegations",
+      "precondition": "Vocabulary change",
+      "expected_fail_closed_behavior": "vocabulary_version is pinned; any change bumps it; old scopes fail closed",
+      "required_invariant": "DI-18",
+      "future_enforcement_owner": "contracts + CR-02",
+      "test_strategy": "Vocabulary-bump fixtures"
+    },
+    {
+      "id": "T-53",
+      "attack": "A caller-supplied PermissionDecision(ALLOW) bypasses approval and delegation at the executor",
+      "precondition": "Direct caller of execute_action_durably",
+      "expected_fail_closed_behavior": "C\u2032 recomputes permission and delegation before the gates; the caller's decision is only a consistency check",
+      "required_invariant": "DI-14",
+      "future_enforcement_owner": "durable executor (CR-05)",
+      "test_strategy": "Supplied ALLOW for an external action \u2192 fails"
+    },
+    {
+      "id": "T-54",
+      "attack": "Objective mutation under the same id: objective text or scope is edited after delegation",
+      "precondition": "Mutable objective record",
+      "expected_fail_closed_behavior": "ObjectiveRef(id, version); edits create a new version; old delegations stay bound to the old version",
+      "required_invariant": "DI-18",
+      "future_enforcement_owner": "future objective store (v0.2.8) + evaluator",
+      "test_strategy": "Edit-objective fixtures"
+    },
+    {
+      "id": "T-55",
+      "attack": "Clock rollback revives an expired delegation",
+      "precondition": "The trusted clock goes backwards",
+      "expected_fail_closed_behavior": "Monotonic high-water mark; now below the mark \u2192 CLOCK_UNTRUSTED",
+      "required_invariant": "DI-14",
+      "future_enforcement_owner": "store + evaluator",
+      "test_strategy": "Rollback fixtures"
+    },
+    {
+      "id": "T-56",
+      "attack": "Chain switching or a forward parent pointer: a tampered child points to a different or later-issued parent",
+      "precondition": "Store tampering",
+      "expected_fail_closed_behavior": "The immutable parent pointer is followed exactly; parent.issued_at \u2264 child.issued_at and sequence order are checked; no parent search",
+      "required_invariant": "PO-13",
+      "future_enforcement_owner": "evaluator",
+      "test_strategy": "Tamper fixtures"
+    },
+    {
+      "id": "T-57",
+      "attack": "Tier under-classification: an action that is conceptually P4 compares as P3 through the (level, risk) mapping",
+      "precondition": "P3 and P4 share EXTERNAL_ACTION",
+      "expected_fail_closed_behavior": "required_tier = max(T_floor, T_class); P3 only for EXTERNAL_ACTION \u2227 MEDIUM; LOW/HIGH/CRITICAL \u2192 P4. Residual: a tool that mis-declares its risk",
+      "required_invariant": "DI-05",
+      "future_enforcement_owner": "evaluator mapping, then Permission Engine (CR-02)",
+      "test_strategy": "Exhaustive table test over action_type \u00d7 tool level \u00d7 tool risk"
+    }
+  ],
+  "denial_laundering_matrix": [
+    {
+      "id": "D-01",
+      "vector": "denied -> rephrase",
+      "solvable_with_v025_lineage": "PARTIAL",
+      "notes": "Lineage gives the (root, objective) key; recognizing the same intent under new wording needs a trusted intent key owned by a future action-intent layer. v0.2.5 alone does NOT solve this."
+    },
+    {
+      "id": "D-02",
+      "vector": "denied -> retry",
+      "solvable_with_v025_lineage": "EXACT-PAYLOAD ONLY; needs a future DenialRecord (not in v0.2.5)",
+      "notes": "The existing REJECTED Action is terminal. A *new* Action with a byte-identical payload has the same action_hash, so it would match a future DenialRecord keyed by (root, objective_ref, action_hash). Any payload change evades that [HR-11]."
+    },
+    {
+      "id": "D-03",
+      "vector": "denied -> redelegate",
+      "solvable_with_v025_lineage": "EXACT-PAYLOAD ONLY; needs a future DenialRecord",
+      "notes": "Every descendant lineage shares the root delegation id, so the key is visible to all descendants. Matching is still by exact hash only."
+    },
+    {
+      "id": "D-04",
+      "vector": "denied -> split",
+      "solvable_with_v025_lineage": "NO (attribution only)",
+      "notes": "Lineage attributes both halves to the same root/objective; detecting that halves recombine a denied intent is future orchestration policy."
+    },
+    {
+      "id": "D-05",
+      "vector": "denied -> new agent",
+      "solvable_with_v025_lineage": "EXACT-PAYLOAD ONLY; needs a future DenialRecord",
+      "notes": "A new agent has no authority unless some root delegates to it. Under the same root, an identical payload matches. A different root needs human issuance, and that flow must show prior denials (a UX requirement, not an enforced check). A reworded payload evades it [HR-11]."
+    },
+    {
+      "id": "D-06",
+      "vector": "denied -> new model",
+      "solvable_with_v025_lineage": "YES (structural)",
+      "notes": "Model identity never participates in authority or denial keys."
+    },
+    {
+      "id": "D-07",
+      "vector": "denied -> new provider",
+      "solvable_with_v025_lineage": "YES (structural)",
+      "notes": "Provider identity never participates in authority or denial keys."
+    },
+    {
+      "id": "D-08",
+      "vector": "denied -> new objective wrapper",
+      "solvable_with_v025_lineage": "PARTIAL",
+      "notes": "A new objective needs a human-issued root; the issuance flow must surface prior denials for the same intent key; automatic equivalence of objectives is future scope."
+    }
+  ],
+  "revocation_threat_matrix": [
+    {
+      "id": "R-01",
+      "threat": "Unauthorized revoker",
+      "design_response": "Revoker must be HUMAN_OWNER, the edge's delegator, or an ancestor delegator in the lineage; otherwise REVOKER_NOT_AUTHORIZED."
+    },
+    {
+      "id": "R-02",
+      "threat": "Child revokes parent constraint",
+      "design_response": "Children are not ancestors of their parent edge; and scopes have no separable constraints to revoke (whole-edge only)."
+    },
+    {
+      "id": "R-03",
+      "threat": "Revocation restores authority accidentally",
+      "design_response": "Revocation only ever removes edges; effective authority is a meet along one lineage; descendants are never re-parented; removing an edge can never enlarge any lineage's meet."
+    },
+    {
+      "id": "R-04",
+      "threat": "Descendant survives invalid upstream",
+      "design_response": "Effective state of an edge requires every ancestor edge effective (UPSTREAM_INEFFECTIVE)."
+    },
+    {
+      "id": "R-05",
+      "threat": "Stale revocation cache",
+      "design_response": "No cache in v0.2.5; future caches must be invalidated by the revocation watermark."
+    },
+    {
+      "id": "R-06",
+      "threat": "Replay of pre-revocation record",
+      "design_response": "Revocation keyed by delegation_id is permanent; ids never reused; records carry no status to replay."
+    },
+    {
+      "id": "R-07",
+      "threat": "Duplicate revocation",
+      "design_response": "Idempotent: first RevocationRecord wins; later attempts are recorded as no-ops and never alter revoked_at."
+    },
+    {
+      "id": "R-08",
+      "threat": "Revoke/issue race",
+      "design_response": "Issuance of a child and revocation of its parent serialize on the parent edge; if revocation commits first, issuance fails UPSTREAM_INEFFECTIVE; if issuance commits first, the child is immediately ineffective by cascade."
+    },
+    {
+      "id": "R-09",
+      "threat": "Revoke/evaluate race",
+      "design_response": "Evaluation reads a consistent snapshot (records + revocations + watermark); result carries the watermark it used; final boundary re-evaluates."
+    },
+    {
+      "id": "R-10",
+      "threat": "Revoke/execute race",
+      "design_response": "Final-boundary check (C') and execution claim (E) occur in one serialized transaction with the revocation read; revocation after claim cannot retract an in-flight adapter effect (documented residual window)."
+    }
+  ],
+  "constitutional_compatibility": [
+    {
+      "existing_invariant": "central_authority chain human_owner -> jarvis_control_plane -> agents",
+      "v025_interpretation": "Only HUMAN_OWNER roots grants; control plane issues/evaluates",
+      "design_mechanism": "RootAuthorization + trusted store",
+      "potential_conflict": "None",
+      "resolution": "Adopted"
+    },
+    {
+      "existing_invariant": "trust_boundaries: agents = delegated_responsibility_only",
+      "v025_interpretation": "Agents hold only lineage-bounded scopes",
+      "design_mechanism": "Evaluator",
+      "potential_conflict": "None",
+      "resolution": "Adopted"
+    },
+    {
+      "existing_invariant": "delegation_rules.fields (parent_agent_id, child_agent_id, ...)",
+      "v025_interpretation": "Generalized to delegator/delegate PrincipalRef + explicit root",
+      "design_mechanism": "PrincipalRef, parent union",
+      "potential_conflict": "parent_agent_id cannot express a human root without None",
+      "resolution": "Supersede field NAMES by reviewed design; semantics preserved; recorded as explicit refinement, not silent"
+    },
+    {
+      "existing_invariant": "delegation_rules.fields budget_ceiling, context_scope, memory_scope, allowed_outputs",
+      "v025_interpretation": "Deferred dimensions",
+      "design_mechanism": "Schema versioning",
+      "potential_conflict": "v0.2.0 lists them as delegation fields",
+      "resolution": "Deferred to v0.2.6/v0.2.7/v0.2.8; absent dimensions are not 'unlimited' because their owning systems enforce independently"
+    },
+    {
+      "existing_invariant": "delegation_rules.fields status, created_at",
+      "v025_interpretation": "status becomes computed effectiveness; created_at becomes store-set issued_at",
+      "design_mechanism": "Append-only records + RevocationRecord",
+      "potential_conflict": "v0.2.0 lists status as a record field; mutable stored status is a replay/rewrite surface",
+      "resolution": "Explicit refinement for human review: status computed at trusted time, never stored (DI-07)"
+    },
+    {
+      "existing_invariant": "delegation_rules.fields task_scope, allowed_capability_requests",
+      "v025_interpretation": "task_scope -> objective_id (durable id); allowed_capability_requests -> action_types over the Permission Engine vocabulary",
+      "design_mechanism": "AuthorityScope",
+      "potential_conflict": "Free-text task scope is not machine-verifiable",
+      "resolution": "Refined into closed machine-checkable dimensions; free-text task description is not an authority field"
+    },
+    {
+      "existing_invariant": "authority_rules.effective_authority_is_intersection_of (all ten terms)",
+      "v025_interpretation": "system/owner policy -> SYSTEM_POLICY ceiling + owner-issued root scope; objective/requester/delegation -> lineage meet; child_agent_ceiling -> lineage scope (no per-agent field); tool_policy/permission_tier/budget/approval -> their owning systems as sequential gates",
+      "design_mechanism": "Meet over lineage + pipeline ordering",
+      "potential_conflict": "Could be read as one monolithic intersection in one component",
+      "resolution": "Each term enforced by its owner; delegation computes only its own terms; every gate only narrows (no God engine)"
+    },
+    {
+      "existing_invariant": "delegation_rules.invariant child_authority <= parent_effective_authority",
+      "v025_interpretation": "child <= parent redelegable_scope <= parent scope",
+      "design_mechanism": "leq + meet",
+      "potential_conflict": "Stricter than v0.2.0 wording",
+      "resolution": "Compatible (strengthening)"
+    },
+    {
+      "existing_invariant": "authority_rules.effective_authority_is_intersection_of [..., applicable_approval_state]",
+      "v025_interpretation": "Approval state is consumed at the final boundary as a separate gate, not folded into delegated scope",
+      "design_mechanism": "Pipeline ordering",
+      "potential_conflict": "Could be read as approval widening scope",
+      "resolution": "Resolved: intersection can only narrow; approval is an additional required condition, never a scope term"
+    },
+    {
+      "existing_invariant": "authority_rules.single_delegation_lineage_per_action",
+      "v025_interpretation": "Exactly one leaf delegation per action",
+      "design_mechanism": "Action binding (CR-01)",
+      "potential_conflict": "Action has no field for it today",
+      "resolution": "CR-01 (separately authorized, needs migration)"
+    },
+    {
+      "existing_invariant": "authority_rules.cross_delegation_union_allowed=false",
+      "v025_interpretation": "No joins defined anywhere",
+      "design_mechanism": "Meet-only algebra",
+      "potential_conflict": "None",
+      "resolution": "Adopted"
+    },
+    {
+      "existing_invariant": "authority_rules.no_authority_laundering (retry/replan/fallback/recovery)",
+      "v025_interpretation": "Authority depends only on lineage + trusted time",
+      "design_mechanism": "Evaluator inputs exclude model/provider/retry state",
+      "potential_conflict": "None",
+      "resolution": "Adopted"
+    },
+    {
+      "existing_invariant": "permission_compatibility P0-P5 + preserved Permission Engine",
+      "v025_interpretation": "Ceiling compared with Permission Engine classification",
+      "design_mechanism": "PTier mapping (CR-02)",
+      "potential_conflict": "PermissionLevel cannot distinguish P0/P1 or P3/P4",
+      "resolution": "CR-02: Permission Engine exposes authoritative tier; interim exhaustive mapping must fail closed"
+    },
+    {
+      "existing_invariant": "approval_binding_rules.bound_to includes requesting_agent, scope",
+      "v025_interpretation": "Approval must bind requesting principal + delegation",
+      "design_mechanism": "CR-01 extends action_hash allowlist",
+      "potential_conflict": "v0.1.3 action_hash omits requesting agent",
+      "resolution": "CR-01; existing gap recorded, not silently fixed"
+    },
+    {
+      "existing_invariant": "denial_persistence_rules (keyed by action_identity, semantic_intent)",
+      "v025_interpretation": "v0.2.5 supplies root/objective lineage keys",
+      "design_mechanism": "Lineage ids",
+      "potential_conflict": "No durable DenialRecord exists in v0.1.3; semantic intent unimplemented",
+      "resolution": "Recorded as open dependency (future owner: approval/orchestration)"
+    },
+    {
+      "existing_invariant": "self_approval_rules",
+      "v025_interpretation": "Delegation carries no approval authority",
+      "design_mechanism": "No approval fields; CR-03",
+      "potential_conflict": "decide_approval compares strings only",
+      "resolution": "CR-03: decided_by must be HUMAN_OWNER principal"
+    },
+    {
+      "existing_invariant": "coding_agent_rules.protected_targets",
+      "v025_interpretation": "Not delegable as ordinary change",
+      "design_mechanism": "Protected-target action class (future)",
+      "potential_conflict": "No action class for repository edits exists yet",
+      "resolution": "Deferred to integration/protected-target policy; DI-13"
+    },
+    {
+      "existing_invariant": "multi_business_rules.tenant_scope_is_explicit_authorization_dimension",
+      "v025_interpretation": "Future scope dimension via schema version",
+      "design_mechanism": "schema_version",
+      "potential_conflict": "Not implemented in v0.2.5",
+      "resolution": "Deferred; namespace strings grant nothing"
+    },
+    {
+      "existing_invariant": "budget_rules.hierarchical_budget_child_may_exceed_parent_delegation=false",
+      "v025_interpretation": "Future budget dimension must attenuate",
+      "design_mechanism": "Deferred",
+      "potential_conflict": "Budget engine treats unconfigured account as unlimited",
+      "resolution": "Recorded: future delegated budgets must not inherit 'unconfigured = unlimited'"
+    },
+    {
+      "existing_invariant": "audit_integrity_rules (immutable, superseding records, dangling lineage fails closed)",
+      "v025_interpretation": "Append-only records; computed state",
+      "design_mechanism": "Store + resolver",
+      "potential_conflict": "None",
+      "resolution": "Adopted"
+    },
+    {
+      "existing_invariant": "fail_closed_conditions: missing/expired delegation, invalid chain",
+      "v025_interpretation": "Reason codes",
+      "design_mechanism": "Evaluator",
+      "potential_conflict": "None",
+      "resolution": "Adopted"
+    },
+    {
+      "existing_invariant": "SI-25 frozen v0.1.3 guarantees",
+      "v025_interpretation": "No v0.1.3 file changes in v0.2.5 core stages",
+      "design_mechanism": "CR-01..CR-05 require separate authorization",
+      "potential_conflict": "Integration needs v0.1.3 changes",
+      "resolution": "Staged: core first, integration separately authorized"
+    },
+    {
+      "existing_invariant": "Legacy app/security/permissions.py + app/agents AgentDescriptor.permissions (agent-TYPE standing permissions, legacy app/orchestration path)",
+      "v025_interpretation": "Not an authority root; never consulted by delegation",
+      "design_mechanism": "Evaluator ignores it",
+      "potential_conflict": "Pre-existing 'type grants permission' model",
+      "resolution": "Recorded; if the legacy path is ever joined, its sets may only act as an additional ceiling (intersection)"
+    }
+  ],
+  "change_requests_requiring_separate_authorization": [
+    {
+      "id": "CR-01",
+      "change": "Bind requesting PrincipalRef + leaf delegation_id insert-once at Action creation (recommended: side table action_authority_bindings + approval-request fields; action_hash unchanged); every resume/recovery/execution reads the binding (T-44, T-46)",
+      "touches": "orchestrator requester handling, approval persistence/validity (frozen v0.1.3) + migration",
+      "reason": "Approval binding to requesting agent (v0.2.0) and single lineage per action",
+      "migration": true,
+      "regression_risk": "MEDIUM"
+    },
+    {
+      "id": "CR-02",
+      "change": "Permission Engine exposes the authoritative P-tier on PermissionDecision (additive)",
+      "touches": "v0.1.3 permission_engine (frozen)",
+      "reason": "PermissionLevel cannot distinguish P0/P1 and P3/P4; the mapping must be owned by the Permission Engine, not duplicated",
+      "migration": false,
+      "regression_risk": "LOW"
+    },
+    {
+      "id": "CR-03",
+      "change": "decide_approval requires HUMAN_OWNER PrincipalRef decided_by; (kind,id) equality; one canonical owner id; owner-originated approval semantics (OQ-10)",
+      "touches": "v0.1.3 approval_engine (frozen)",
+      "reason": "Self-approval through delegated helpers",
+      "migration": "likely (typed decided_by)",
+      "regression_risk": "MEDIUM"
+    },
+    {
+      "id": "CR-04",
+      "change": "Durable AgentRegistry with append-only timestamped lifecycle event history; evaluator applies lifecycle-history rule (no re-enable resurrection)",
+      "touches": "v0.2.4 AgentRegistry (in-memory, immutable)",
+      "reason": "Disabled-after-issuance semantics and durable lineage references",
+      "migration": true,
+      "regression_risk": "MEDIUM"
+    },
+    {
+      "id": "CR-05",
+      "change": "Durable executor runs C' BEFORE gates A/B/C: recomputes permission and delegation from durable state; caller PermissionDecision only a consistency check (T-53)",
+      "touches": "v0.1.3 durable_action_executor (frozen)",
+      "reason": "Revocation/expiry freshness at execution",
+      "migration": false,
+      "regression_risk": "HIGH"
+    }
+  ],
+  "reason_codes": [
+    {
+      "code": "NO_EFFECTIVE_DELEGATION",
+      "meaning": "Requester named no delegation, or holds none"
+    },
+    {
+      "code": "UNKNOWN_DELEGATION",
+      "meaning": "delegation_id not in trusted store"
+    },
+    {
+      "code": "DELEGATE_MISMATCH",
+      "meaning": "Leaf delegate is not the requesting principal"
+    },
+    {
+      "code": "UNKNOWN_PRINCIPAL",
+      "meaning": "Principal does not resolve (unregistered agent / unknown owner id / unknown kind)"
+    },
+    {
+      "code": "DELEGATE_INACTIVE",
+      "meaning": "Delegate agent disabled"
+    },
+    {
+      "code": "DELEGATOR_INACTIVE",
+      "meaning": "Delegator agent disabled"
+    },
+    {
+      "code": "DELEGATION_REVOKED",
+      "meaning": "This edge revoked"
+    },
+    {
+      "code": "DELEGATION_EXPIRED",
+      "meaning": "Trusted time >= expires_at"
+    },
+    {
+      "code": "UPSTREAM_INEFFECTIVE",
+      "meaning": "An ancestor edge is not effective"
+    },
+    {
+      "code": "LINEAGE_INVALID",
+      "meaning": "Discontinuous, cyclic, over-long, rootless or tampered lineage"
+    },
+    {
+      "code": "OBJECTIVE_MISMATCH",
+      "meaning": "Action objective differs from lineage objective"
+    },
+    {
+      "code": "UNKNOWN_AUTHORITY_DIMENSION",
+      "meaning": "Unrecognized schema_version/dimension/enum value"
+    },
+    {
+      "code": "CEILING_EXCEEDED",
+      "meaning": "Required P-tier above effective ceiling"
+    },
+    {
+      "code": "ACTION_TYPE_NOT_DELEGATED",
+      "meaning": "action_type not in effective action set"
+    },
+    {
+      "code": "REDELEGATION_FORBIDDEN",
+      "meaning": "Issuance from an edge without redelegation"
+    },
+    {
+      "code": "DEPTH_EXCEEDED",
+      "meaning": "Issuance beyond remaining depth"
+    },
+    {
+      "code": "SCOPE_NOT_ATTENUATED",
+      "meaning": "Issuance request exceeds parent redelegable scope in some dimension"
+    },
+    {
+      "code": "SELF_DELEGATION",
+      "meaning": "delegator == delegate"
+    },
+    {
+      "code": "PRINCIPAL_CYCLE",
+      "meaning": "Delegate already appears in lineage"
+    },
+    {
+      "code": "NOT_ISSUABLE_TO_AGENT",
+      "meaning": "P5 or other non-delegable authority requested for an agent"
+    },
+    {
+      "code": "REVOKER_NOT_AUTHORIZED",
+      "meaning": "Revoker is not owner/delegator/ancestor"
+    },
+    {
+      "code": "CLOCK_UNTRUSTED",
+      "meaning": "No trusted time snapshot was supplied, or the clock is below the store high-water mark [HR-15]"
+    },
+    {
+      "code": "EMPTY_AUTHORITY",
+      "meaning": "The effective meet is \u22a5 [HR-01]"
+    },
+    {
+      "code": "REQUESTER_UNBOUND",
+      "meaning": "No durable requester binding exists, or the caller-supplied requester differs from it [HR-03]"
+    },
+    {
+      "code": "PRINCIPAL_LIFECYCLE_EVENT",
+      "meaning": "The delegator or delegate has had a lifecycle event since issuance [HR-04]"
+    },
+    {
+      "code": "VERSION_MISMATCH",
+      "meaning": "The scope's vocabulary_version does not match the evaluator's [HR-09]"
+    },
+    {
+      "code": "ROOT_AUTHORIZATION_INVALID",
+      "meaning": "Owner event id reused, digest mismatch, or a root not issued by the owner [HR-06]"
+    }
+  ],
+  "future_modules": {
+    "app/delegation/contracts.py": "PrincipalRef, AuthorityScope, PTier, DelegationRequest, DelegationRecord, RevocationRecord, AuthorityEvaluation, reason codes",
+    "app/delegation/scope.py": "pure algebra: validate, leq, meet; no I/O",
+    "app/delegation/store.py": "trusted issuance/revocation, append-only, exact-type + revalidation",
+    "app/delegation/evaluator.py": "resolve_lineage, evaluate_effective_authority (pure over store snapshot + registry + clock)"
+  },
+  "future_module_prohibited_imports": [
+    "app.providers.registry",
+    "app.providers.router",
+    "app.decision_intelligence.tool_adapters",
+    "app.decision_intelligence.approval_engine",
+    "app.decision_intelligence.budget",
+    "app.decision_intelligence.durable_action_executor",
+    "app.decision_intelligence.action_plan_orchestrator",
+    "app.agents",
+    "app.security.permissions"
+  ],
+  "dependency_direction": "agent_identity <- delegation <- (future, separately authorized) orchestrator/executor integration; permission_engine and agent_identity never import delegation",
+  "implementation_stages": [
+    {
+      "stage": "v0.2.5.1",
+      "scope": "contracts + pure scope algebra",
+      "touches_v013": false
+    },
+    {
+      "stage": "v0.2.5.2",
+      "scope": "in-memory trusted store (issue/revoke/get)",
+      "touches_v013": false
+    },
+    {
+      "stage": "v0.2.5.3",
+      "scope": "lineage resolver + evaluator",
+      "touches_v013": false
+    },
+    {
+      "stage": "v0.2.5.4",
+      "scope": "hostile benchmark over full threat matrix",
+      "touches_v013": false
+    },
+    {
+      "stage": "v0.2.5.5",
+      "scope": "durable store + CR-01..CR-05 integration (separately authorized, migration)",
+      "touches_v013": true
+    }
+  ],
+  "forbidden_paths_during_design": [
+    "app/delegation",
+    "app/authority"
+  ],
+  "alembic_head_expected": "7f2c9a1e4b6d",
+  "tool_adapters_expected": [
+    "file.create_sandboxed"
+  ],
+  "v013_tag_commit": "be667b177f27839f5a370939bca045b7fb06eb4c",
+  "design_review_questions_answered": 22,
+  "lessons_applied": {
+    "B-11": "deep immutability through all ordinary mutation APIs incl. inherited in-place operators",
+    "v0.2.4": "exact trusted type, revalidation at store boundary, store-owned snapshot, subclass and Pydantic-bypass defense, no authority-looking metadata",
+    "v0.2.3": "exhaustive enums (no fallthrough to privilege), result records the policy applied, hard constraints before optimization, fallback cannot weaken constraints"
+  },
+  "principal_identity": "(kind, id) pair for equality, hashing, serialization, continuity, cycle detection, revoker checks and audit; no bare-string comparison",
+  "requester_binding": "typed PrincipalRef bound insert-once at Action creation; every evaluation/resume/recovery/C' reads the binding; caller mismatch => REQUESTER_UNBOUND; no default requester ('system'/owner/empty hold no delegation); trusted principal context is a future dependency",
+  "objective_binding": "ObjectiveRef(id, version); control-plane/owner created; immutable per version; edits create new versions; no objective store exists yet (integration precondition, v0.2.8)",
+  "one_lineage_rule_status": "constitutional (v0.2.0 single_delegation_lineage_per_action=true, cross_delegation_union_allowed=false); compositional expressiveness intentionally sacrificed; removal is a constitutional change",
+  "p5_policy": "new v0.2.5 policy decision (DA-03, approved with rewording), not constitutional; no standing delegated P5 to AI agents; an agent may propose a P5 action but holds no authority to execute it; P5 proposal -> STOP at authorization boundary; any future P5 execution path requires a separately designed, hostile-reviewed and Human-Owner-approved P5 authorization protocol (OQ-10, OPEN); integration removes agent-originated financial approvals",
+  "p5_boundary": {
+    "approved_rule": "AI agents may never hold standing delegated P5 authority under v0.2.5. An AI agent may formulate or propose a P5 action, but v0.2.5 grants no authority to execute that action. Any future P5 execution path requires a separately designed, hostile-reviewed and Human-Owner-approved P5 authorization protocol.",
+    "agent_p5_proposal_grants_authority": false,
+    "human_approval_grants_standing_p5": false,
+    "approval_transferable_between_actions": false,
+    "approval_mutates_delegation_ceiling": false,
+    "p5_issuable_to_agent": false,
+    "p5_proposal_outcome": "STOP_AT_AUTHORIZATION_BOUNDARY",
+    "p5_execution_protocol_exists": false,
+    "oq_10_status": "OPEN",
+    "rejected_interpretation": "REJECTED: owner adoption ('owner adopts it as their own action') is not an approved security mechanism and is not part of the v0.2.5 architecture",
+    "non_equivalences": [
+      "Agent P5 proposal != Agent P5 authority",
+      "Human approval != standing delegated P5 authority"
+    ]
+  },
+  "da03_hostile_checks": [
+    {
+      "id": "DA03-A",
+      "attack": "CFO agent has P4 -> proposes transfer -> automatically gets P5",
+      "expected_result": "FAIL_CLOSED",
+      "reason": "A proposal carries no authority; P5 is never a valid agent ceiling (NOT_ISSUABLE_TO_AGENT); a P5 action against a P4 lineage is CEILING_EXCEEDED"
+    },
+    {
+      "id": "DA03-B",
+      "attack": "Human approves one P5 proposal -> CFO now has standing P5",
+      "expected_result": "FAIL_CLOSED",
+      "reason": "Approval writes nothing to the delegation store and issues no delegation; P5 not issuable to agents; v0.2.5 has no P5 execution path"
+    },
+    {
+      "id": "DA03-C",
+      "attack": "Human approves one P5 proposal -> another P5 proposal inherits approval",
+      "expected_result": "FAIL_CLOSED",
+      "reason": "Approvals bind to one exact action hash (and after CR-01 to requester and leaf delegation); approval is not authority and is never transferable; proposal stops at the authorization boundary"
+    },
+    {
+      "id": "DA03-D",
+      "attack": "Agent labels action 'owner adopted' -> P5 allowed",
+      "expected_result": "FAIL_CLOSED",
+      "reason": "Labels, notes and metadata are not authority inputs (T-26); owner adoption is not a v0.2.5 mechanism"
+    },
+    {
+      "id": "DA03-E",
+      "attack": "Agent changes requested_by to HUMAN_OWNER -> P5 allowed",
+      "expected_result": "FAIL_CLOSED",
+      "reason": "Requester binding is a typed PrincipalRef, insert-once at Action creation; caller mismatch is REQUESTER_UNBOUND; agents cannot assert owner identity; trusted principal context is a future dependency (CC-01 blocks integration)"
+    },
+    {
+      "id": "DA03-F",
+      "attack": "Provider/model says owner approved -> P5 allowed",
+      "expected_result": "FAIL_CLOSED",
+      "reason": "Model/provider output is never an authority or approval input (no authority laundering); owner decisions come only through the future trusted owner channel"
+    },
+    {
+      "id": "DA03-G",
+      "attack": "Approval exists -> delegation ceiling mutates to P5",
+      "expected_result": "FAIL_CLOSED",
+      "reason": "Delegation records are immutable and approval never writes the delegation store; ceilings are only preserved or reduced; P5 is not an agent ceiling"
+    }
+  ],
+  "budget_statement": "Delegation does not make an unconfigured budget safe; delegation grants no budget",
+  "frozen_baseline_policy": "frozen v0.1.3 may be superseded only via explicit CR + separate hostile design review + hostile tests first + regression proof + versioned migration where persistence changes + rollback strategy + explicit human authorization",
+  "constitutional_classification": [
+    {
+      "rule": "central_authority",
+      "classification": "compatible interpretation",
+      "note": ""
+    },
+    {
+      "rule": "trust_boundaries (agents = delegated responsibility)",
+      "classification": "compatible interpretation",
+      "note": ""
+    },
+    {
+      "rule": "delegation_rules.fields parent_agent_id/child_agent_id",
+      "classification": "explicit refinement requiring authorization",
+      "note": "principals + explicit root"
+    },
+    {
+      "rule": "delegation_rules.fields status, created_at",
+      "classification": "explicit refinement requiring authorization",
+      "note": "status computed; store-set issued_at"
+    },
+    {
+      "rule": "delegation_rules.fields task_scope, allowed_capability_requests",
+      "classification": "explicit refinement requiring authorization",
+      "note": "objective_ref; action_types"
+    },
+    {
+      "rule": "delegation_rules.fields budget_ceiling, context_scope, memory_scope, allowed_outputs",
+      "classification": "explicit refinement requiring authorization",
+      "note": "deferred; absent = zero"
+    },
+    {
+      "rule": "delegation_rules.invariant",
+      "classification": "strengthening",
+      "note": "child \u2264 redelegable \u2264 scope"
+    },
+    {
+      "rule": "authority_rules.effective_authority_is_intersection_of",
+      "classification": "compatible interpretation",
+      "note": "enforced distributively by owners"
+    },
+    {
+      "rule": "authority_rules.single_delegation_lineage_per_action / cross_delegation_union_allowed=false",
+      "classification": "compatible interpretation",
+      "note": "adopted as constitutional (\u00a7I)"
+    },
+    {
+      "rule": "authority_rules.no_authority_laundering",
+      "classification": "compatible interpretation",
+      "note": ""
+    },
+    {
+      "rule": "permission_compatibility tiers",
+      "classification": "compatible interpretation",
+      "note": "PTier = constitutional names; CR-02"
+    },
+    {
+      "rule": "(new) P5 not delegable to agents",
+      "classification": "explicit refinement requiring authorization",
+      "note": "new policy; removes agent-originated financial approvals (HR-12); design-approved as DA-03 (with rewording), not implementation-authorized"
+    },
+    {
+      "rule": "approval_binding_rules.bound_to requesting_agent",
+      "classification": "conflict (pre-existing, v0.1.3 implementation vs v0.2.0)",
+      "note": "unresolved until CR-01 + CR-03; blocks integration"
+    },
+    {
+      "rule": "denial_persistence_rules (reframing, splitting)",
+      "classification": "conflict (pre-existing, unmet requirement)",
+      "note": "not satisfiable by v0.2.5; blocks any claim of denial persistence"
+    },
+    {
+      "rule": "self_approval_rules",
+      "classification": "strengthening",
+      "note": "CR-03 typed human decided_by"
+    },
+    {
+      "rule": "coding_agent_rules.protected_targets",
+      "classification": "compatible interpretation",
+      "note": "unenforced in code; integration precondition (HR-24)"
+    },
+    {
+      "rule": "multi_business_rules",
+      "classification": "strengthening",
+      "note": "absent tenant dimension = zero"
+    },
+    {
+      "rule": "budget_rules.hierarchical_budget",
+      "classification": "compatible interpretation",
+      "note": "deferred; unconfigured budget not made safe by delegation"
+    },
+    {
+      "rule": "audit_integrity_rules",
+      "classification": "compatible interpretation",
+      "note": "+ record digests (HR-21)"
+    },
+    {
+      "rule": "fail_closed_conditions",
+      "classification": "compatible interpretation",
+      "note": ""
+    },
+    {
+      "rule": "SI-25 frozen v0.1.3 guarantees",
+      "classification": "conflict for integration stage only",
+      "note": "resolved only via the frozen-change process (\u00a7P)"
+    }
+  ],
+  "hostile_review": {
+    "review_id": "HR-1",
+    "status": "DESIGN_ONLY",
+    "critical_findings": 0,
+    "all_high_medium_remediated": true,
+    "findings": [
+      {
+        "severity": "HIGH",
+        "artifact_section": "\u00a73.3 algebra",
+        "counterexample": "meet({read}@O1, {send}@O1): the intersection \u2205 violates the non-empty invariant. meet(\u00b7@O1, \u00b7@O2) was \"undefined\"",
+        "impact": "The \"meet-only algebra\" claim was false. An implementer could return `None` for an undefined meet, and `None` might then be read as \"no restriction\"",
+        "root_cause": "No bottom element",
+        "remediation": "Explicit \u22a5 (NO_AUTHORITY), an internal sentinel, never issued or stored; meet made total; `EMPTY_AUTHORITY` reason; DI-15, PO-15, T-45",
+        "design_test": "PO-15 property tests",
+        "status": "REMEDIATED",
+        "id": "HR-01"
+      },
+      {
+        "severity": "HIGH",
+        "artifact_section": "\u00a73.2, \u00a716 P-tier mapping",
+        "counterexample": "`external_modify` on a HIGH-risk tool \u2192 EXTERNAL/HIGH. EXTERNAL/LOW is reachable through a tool declaring EXTERNAL/LOW with `read` support, which contradicts the draft's \"unreachable\"",
+        "impact": "The P3/P4 distinction was under-specified and depended on the unstated `max()` risk semantics. A careless mapping (risk \u2264 MEDIUM \u2192 P3) would under-classify",
+        "root_cause": "PermissionLevel lacks P3/P4",
+        "remediation": "\u00a73.7: exact `max(T_floor, T_class)` table; P3 only when positively established; residual tool-misdeclaration risk stated; CR-02 ownership; T-57",
+        "design_test": "Exhaustive action_type \u00d7 level \u00d7 risk table",
+        "status": "REMEDIATED",
+        "id": "HR-02"
+      },
+      {
+        "severity": "HIGH",
+        "artifact_section": "\u00a77 requester trust",
+        "counterexample": "Plan created with `requested_by=\"agent.a\"`, later resumed by a caller passing `requested_by=\"agent.b\"`. Nothing durable records A. The default requester is `\"system\"`",
+        "impact": "Sibling or requester substitution once delegation is integrated. Part I's amendment wrongly implied that today's `requested_by` is trustworthy",
+        "root_cause": "The requester is a bare, per-call, unpersisted string",
+        "remediation": "Typed PrincipalRef bound insert-once at Action creation; every later check reads the binding; no default requester; trusted principal context declared as a dependency; DI-16, PO-16, T-46, `REQUESTER_UNBOUND`",
+        "design_test": "Resume-substitution fixtures",
+        "status": "REMEDIATED",
+        "id": "HR-03"
+      },
+      {
+        "severity": "HIGH",
+        "artifact_section": "\u00a712 lifecycle",
+        "counterexample": "CEO disabled, then re-enabled. The evaluator reads only current `enabled`, so CTO's delegation silently returns. Without CR-04 there is no atomic revocation",
+        "impact": "Stale authority resurrection",
+        "root_cause": "Dynamic suspension was the de-facto semantics",
+        "remediation": "Lifecycle-history rule: any event since `issued_at` permanently ends the edge; re-issuance required; revocation \u2260 disable; integration precondition on append-only lifecycle history; DI-17, PO-17, T-47",
+        "design_test": "disable\u2192enable at every hop of a 10-hop chain",
+        "status": "REMEDIATED",
+        "id": "HR-04"
+      },
+      {
+        "severity": "HIGH",
+        "artifact_section": "\u00a73.4 deferred dimensions",
+        "counterexample": "v0.2.6 adds tenant scope. The Part I sentence \"enforced by their owning systems; delegation does not widen them\" lets a v1 record pass the delegation gate for any tenant",
+        "impact": "Old-schema, new-dimension escalation",
+        "root_cause": "Two contradictory statements (fail closed vs silent)",
+        "remediation": "\u00a73.5: absent dimension = zero; exact-version evaluation; no automatic upgrade; no cross-system inference; DI-18, PO-18, T-48",
+        "design_test": "v1-under-v2 fixtures",
+        "status": "REMEDIATED",
+        "id": "HR-05"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a74 root",
+        "counterexample": "One owner authorization event id reused for N root edges, or a root row inserted with a copied event id",
+        "impact": "Unbounded root minting from a single human act",
+        "root_cause": "No uniqueness or content binding on the root",
+        "remediation": "Unique `owner_authorization_event_id`; `root_request_digest`; `issue_root` only on the owner channel; DB integrity as a stated trust assumption; T-49",
+        "design_test": "Duplicate-event and digest-mismatch fixtures",
+        "status": "REMEDIATED",
+        "id": "HR-06"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a73 system policy",
+        "counterexample": "No delegation, P3 ceiling: an implementer computes meet(ceiling) = P3. Owner issues P4 while policy allows P2",
+        "impact": "System policy acting as a grantor; owner overriding policy",
+        "root_cause": "The ceiling was untyped, and the root-vs-ceiling rule was unstated",
+        "remediation": "\u00a73.8: typed SystemPolicyCeiling, not evaluable alone; no lineage \u21d2 \u22a5; root above ceiling rejected; later tightening applies; override only through a separate policy-management action; `policy_version` recorded; DI-19, PO-19, T-50",
+        "design_test": "Empty-store and over-ceiling fixtures",
+        "status": "REMEDIATED",
+        "id": "HR-07"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a716, CR-05",
+        "counterexample": "`execute_action_durably(action, PermissionDecision(ALLOW))` for an external action skips gate C today",
+        "impact": "Approval bypass today and delegation bypass after integration if C\u2032 runs after A/B",
+        "root_cause": "The executor trusts the caller's decision",
+        "remediation": "C\u2032 runs before A/B/C, recomputes permission and delegation, and uses the supplied decision only as a consistency check; T-53",
+        "design_test": "Supplied-ALLOW fixture",
+        "status": "REMEDIATED",
+        "id": "HR-08"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a73.2 action_types",
+        "counterexample": "Permission Engine re-tiers `external_modify`, or a tool starts using `read` for a sending operation. Old scopes containing the string now cover the new meaning",
+        "impact": "Silent widening through vocabulary evolution",
+        "root_cause": "The vocabulary is unversioned",
+        "remediation": "`vocabulary_version` pinned in the scope and in the ceiling; any change bumps it; `VERSION_MISMATCH`; T-52",
+        "design_test": "Vocabulary-bump fixture",
+        "status": "REMEDIATED",
+        "id": "HR-09"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a713 objective",
+        "counterexample": "Delegation issued for objective O. O's text is later changed from \"research suppliers\" to \"sign supplier contract\" with the same id",
+        "impact": "Authority silently changes meaning; ids could be model-chosen",
+        "root_cause": "The objective was unversioned and its origin unspecified",
+        "remediation": "`ObjectiveRef(id, version)`; immutable per version; control-plane origin; no objective store today, so this is an integration precondition; T-54",
+        "design_test": "Objective-edit fixture",
+        "status": "REMEDIATED",
+        "id": "HR-10"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a714 denial matrix, PO-09",
+        "counterexample": "\"denied \u2192 new agent: YES\". A reworded or byte-changed payload evades any hash key, and no DenialRecord exists",
+        "impact": "Overclaimed security property",
+        "root_cause": "An exact-hash key was presented as intent persistence",
+        "remediation": "D-02/D-03/D-05 downgraded to EXACT-PAYLOAD ONLY with a future store; PO-09 downgraded; the v0.2.0 denial rules are stated as unmet",
+        "design_test": "Documented NON-catch assertions",
+        "status": "REMEDIATED",
+        "id": "HR-11"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a73.2 P5",
+        "counterexample": "In v0.1.3, an agent-originated `financial` action reaches REQUIRE_APPROVAL and a human may approve it. After integration the gate BLOCKs it",
+        "impact": "An existing workflow is removed without the design saying so, and P5 exclusion was presented as if it were constitutional",
+        "root_cause": "The draft did not separate policy from constitution",
+        "remediation": "\u00a73.7: exclusion is a new policy decision (DA-03, Human-Owner approved with rewording); no standing P5; agent P5 proposals stop at the authorization boundary; behavior change recorded; OQ-10",
+        "design_test": "\u2014 (policy)",
+        "status": "REMEDIATED",
+        "id": "HR-12"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a724 compatibility",
+        "counterexample": "The approval-binding (`requesting_agent`) and denial-persistence rows were labeled as resolved or as open dependencies",
+        "impact": "Conflicts shown as compatible",
+        "root_cause": "No classification column",
+        "remediation": "\u00a7O classification: every row labeled compatible, strengthening, refinement or conflict; two pre-existing conflicts named",
+        "design_test": "Checker verifies the classification list",
+        "status": "REMEDIATED",
+        "id": "HR-13"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a79 depth",
+        "counterexample": "Is `remaining_depth = 1` \"one more edge\", or \"the child may itself redelegate once\"?",
+        "impact": "Off-by-one allows an extra hop",
+        "root_cause": "Informal definition",
+        "remediation": "Definition table plus three machine-checkable issuance rules",
+        "design_test": "Depth fixtures 0/1/2",
+        "status": "REMEDIATED",
+        "id": "HR-14"
+      },
+      {
+        "severity": "MEDIUM",
+        "artifact_section": "\u00a710 time",
+        "counterexample": "Trusted clock rolled back by one day: an expired edge evaluates as effective. Naive datetimes compared against aware ones",
+        "impact": "Revived authority",
+        "root_cause": "No monotonic guard; representation unspecified",
+        "remediation": "Aware-UTC only; high-water mark \u21d2 `CLOCK_UNTRUSTED`; boundary rules; T-55",
+        "design_test": "Rollback and naive fixtures",
+        "status": "REMEDIATED",
+        "id": "HR-15"
+      },
+      {
+        "severity": "LOW",
+        "artifact_section": "\u00a77 per-hop",
+        "counterexample": "A tampered record with `redelegable_scope > scope` passes the evaluator, because only `leq(child, parent.redelegable)` was re-checked",
+        "impact": "Evaluator depended on issuance-time validation",
+        "root_cause": "Incomplete per-hop list",
+        "remediation": "Both `leq`s re-checked at every hop; reject, not clip; parent ordering checked; T-56",
+        "design_test": "Tamper fixtures",
+        "status": "REMEDIATED",
+        "id": "HR-16"
+      },
+      {
+        "severity": "LOW",
+        "artifact_section": "\u00a74 principals",
+        "counterexample": "`AGENT:\"owner\"` vs `HUMAN_OWNER:\"owner\"` in cycle detection or revoker checks written with bare ids",
+        "impact": "False equivalence",
+        "root_cause": "Pair semantics were not stated for every use",
+        "remediation": "`(kind, id)` required for equality, hash, serialization, cycles, revoker checks and audit",
+        "design_test": "Kind-collision fixtures",
+        "status": "REMEDIATED",
+        "id": "HR-17"
+      },
+      {
+        "severity": "LOW",
+        "artifact_section": "\u00a711 revocation",
+        "counterexample": "Can a revocation be revoked? Does the reason matter?",
+        "impact": "Implementation drift",
+        "root_cause": "Unanswered questions",
+        "remediation": "Explicit answers added",
+        "design_test": "R-07 fixtures",
+        "status": "REMEDIATED",
+        "id": "HR-18"
+      },
+      {
+        "severity": "LOW",
+        "artifact_section": "CR-03",
+        "counterexample": "Typed principals, while `decide_approval` still compares strings: `\"AGENT:x\"` vs `\"x\"` aliasing",
+        "impact": "False distinction or false equivalence in self-approval",
+        "root_cause": "String identity",
+        "remediation": "CR-03 requires `(kind, id)` equality, `HUMAN_OWNER` only, one canonical owner id and no alias table (\u00a7P)",
+        "design_test": "CR-03 tests",
+        "status": "REMEDIATED",
+        "id": "HR-19"
+      },
+      {
+        "severity": "LOW",
+        "artifact_section": "checker",
+        "counterexample": "Production code placed at `jarvis/delegation.py` or `app/policy/x.py` with renamed classes passes the checker. Counts were hardcoded",
+        "impact": "False assurance",
+        "root_cause": "Filename and class-name heuristics",
+        "remediation": "Whole-repo `git status` allowlist; HR/DA/classification checks; dimension MD\u2194JSON consistency; blind spots documented (\u00a7Q)",
+        "design_test": "Tamper tests",
+        "status": "REMEDIATED",
+        "id": "HR-20"
+      },
+      {
+        "severity": "LOW",
+        "artifact_section": "\u00a717 audit",
+        "counterexample": "A DB edit changes `scope.permission_ceiling` in place, and nothing notices",
+        "impact": "Undetected semantic mutation",
+        "root_cause": "No record digest",
+        "remediation": "Canonical record digest stored in the `DELEGATION_ISSUED` audit event and re-verified at evaluation (detects corruption and naive tampering, not a DB-admin attacker who updates both); requires B-11 deep immutability",
+        "design_test": "Digest-mismatch fixture",
+        "status": "REMEDIATED",
+        "id": "HR-21"
+      },
+      {
+        "severity": "INFO",
+        "artifact_section": "\u00a77",
+        "counterexample": "Diamond graph and chain switching",
+        "impact": "Already safe by \"one named leaf\", but not stated",
+        "root_cause": "\u2014",
+        "remediation": "Explicit statement; T-51, T-56",
+        "design_test": "Diamond fixtures",
+        "status": "DOCUMENTED",
+        "id": "HR-22"
+      },
+      {
+        "severity": "INFO",
+        "artifact_section": "\u00a719",
+        "counterexample": "Delegation is read as budget approval",
+        "impact": "\u2014",
+        "root_cause": "\u2014",
+        "remediation": "**Delegation does not make an unconfigured budget safe.** \"Unconfigured = unlimited\" is a Budget issue, hardened separately if ever; delegation grants no budget",
+        "design_test": "\u2014",
+        "status": "DOCUMENTED",
+        "id": "HR-23"
+      },
+      {
+        "severity": "INFO",
+        "artifact_section": "\u00a718",
+        "counterexample": "P4 `external_modify` delegation vs protected targets",
+        "impact": "`coding_agent_rules` exists only as a constitution entry; no code enforces it",
+        "root_cause": "\u2014",
+        "remediation": "Integration precondition: no action type that can write to the repository, the delegation store, migrations or security artifacts may be delegable until an independent protected-target gate exists. None exists today; the only adapter is sandboxed",
+        "design_test": "\u2014",
+        "status": "DOCUMENTED",
+        "id": "HR-24"
+      },
+      {
+        "severity": "INFO",
+        "artifact_section": "\u00a716 order",
+        "counterexample": "Options A, B, C",
+        "impact": "\u2014",
+        "root_cause": "\u2014",
+        "remediation": "B now, C after CR-02; comparison table",
+        "design_test": "\u2014",
+        "status": "DOCUMENTED",
+        "id": "HR-25"
+      },
+      {
+        "severity": "INFO",
+        "artifact_section": "\u00a710 computed status",
+        "counterexample": "\"What did the system believe at time t?\"",
+        "impact": "\u2014",
+        "root_cause": "\u2014",
+        "remediation": "Answered by immutable issuance and revocation events plus append-only `AUTHORITY_EVALUATED` audit events (evaluation result, watermark, policy_version, trusted time). Current effectiveness is always recomputed; no mutable status",
+        "design_test": "\u2014",
+        "status": "DOCUMENTED",
+        "id": "HR-26"
+      },
+      {
+        "severity": "INFO",
+        "artifact_section": "OQ-10",
+        "counterexample": "Any future owner-originated P5 path meets the self-approval rule (the owner approving an action the owner requested)",
+        "impact": "\u2014",
+        "root_cause": "\u2014",
+        "remediation": "Open question (OQ-10), bound to CR-03 and the future P5 authorization protocol",
+        "design_test": "\u2014",
+        "status": "DOCUMENTED",
+        "id": "HR-27"
+      },
+      {
+        "severity": "INFO",
+        "artifact_section": "CR-01",
+        "counterexample": "Migration alternatives",
+        "impact": "\u2014",
+        "root_cause": "\u2014",
+        "remediation": "\u00a7P comparison; side table recommended",
+        "design_test": "\u2014",
+        "status": "DOCUMENTED",
+        "id": "HR-28"
+      }
+    ],
+    "pre_existing_constitutional_conflicts_blocking_integration": [
+      "approval_binding_rules.bound_to requesting_agent",
+      "denial_persistence_rules (reframing, splitting)"
+    ],
+    "open_questions": [
+      "OQ-10 (OPEN) future P5 authorization protocol: any P5 execution path, including owner-originated approval semantics vs the self-approval rule (CR-03); not designed in v0.2.5"
+    ],
+    "integration_preconditions": [
+      "CR-01..CR-05 authorized",
+      "authenticated owner channel",
+      "trusted principal context",
+      "objective store (versioned)",
+      "durable lifecycle history",
+      "protected-target gate before any repo-writing action type is delegable"
+    ]
+  },
+  "design_approval_questions": [
+    {
+      "id": "DA-01",
+      "title": "Closed attenuation structure over AuthorityScope \u222a {\u22a5} with explicit internal zero-authority bottom; no union/join available to agents; meet only preserves or reduces",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    },
+    {
+      "id": "DA-02",
+      "title": "Exactly one delegation lineage justifies one action; no union/join/composition of lineages; no single complete valid lineage => FAIL CLOSED",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    },
+    {
+      "id": "DA-03",
+      "title": "No standing delegated P5 for AI agents; agents may propose P5 but hold no authority to execute it; P5 proposal stops at the authorization boundary; future P5 protocol required (OQ-10 OPEN)",
+      "approved": true,
+      "decision": "APPROVED_WITH_REWORDING",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false,
+      "approved_rule": "AI agents may never hold standing delegated P5 authority under v0.2.5. An AI agent may formulate or propose a P5 action, but v0.2.5 grants no authority to execute that action. Any future P5 execution path requires a separately designed, hostile-reviewed and Human-Owner-approved P5 authorization protocol.",
+      "rejected_interpretation": "REJECTED: owner adoption ('owner adopts it as their own action') is not an approved security mechanism and is not part of the v0.2.5 architecture"
+    },
+    {
+      "id": "DA-04",
+      "title": "Human Owner is the explicit root of delegated authority; system policy is a ceiling only (narrows, never creates); no trusted owner authorization => NO AUTHORITY",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    },
+    {
+      "id": "DA-05",
+      "title": "Revocation whole-edge, irreversible per record, append-only/auditable; upstream revocation makes descendants ineffective; history retained; no re-parenting",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    },
+    {
+      "id": "DA-06",
+      "title": "Disable/retire after issuance: delegation and descendants never resurrect on re-enable; fresh issuance required; needs durable lifecycle history (CR-04)",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    },
+    {
+      "id": "DA-07",
+      "title": "Effectiveness computed from immutable issuance/revocation/lifecycle/time evidence; no mutable security-authoritative status; history in append-only audit evidence",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    },
+    {
+      "id": "DA-08",
+      "title": "Authority binds to durable versioned objective identity ObjectiveRef(id, version), never natural-language text alone",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    },
+    {
+      "id": "DA-09",
+      "title": "Schema evolution fails closed: missing new dimension = zero authority for that dimension, never unlimited; no automatic privilege-expanding upgrade",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    },
+    {
+      "id": "DA-10",
+      "title": "CR-01..CR-05 not implementation-authorized; each needs explicit future authorization, hostile tests first, regression, migration, rollback and compatibility analysis, and human review; CR-01 side-table option (b) remains a recommendation only",
+      "approved": true,
+      "decision": "APPROVED",
+      "decided_by": "HUMAN_OWNER",
+      "implementation_authorized": false
+    }
+  ],
+  "constitutional_blockers": [
+    {
+      "id": "CC-01",
+      "rule": "approval_binding_rules.bound_to requesting_agent (requester-bound approval)",
+      "status": "BLOCKING",
+      "waived": false,
+      "blocks": "pipeline integration",
+      "resolution_path": "CR-01 + CR-03, separately reviewed and authorized"
+    },
+    {
+      "id": "CC-02",
+      "rule": "denial_persistence_rules (rewording/reframing, splitting)",
+      "status": "BLOCKING",
+      "waived": false,
+      "blocks": "pipeline integration and any claim of denial persistence",
+      "resolution_path": "future denial store and trusted intent architecture",
+      "non_claims": [
+        "delegation lineage != semantic intent equivalence",
+        "delegation lineage != split/recombine detection"
+      ]
+    }
+  ],
+  "accepted_design_limitations": [
+    "trusted owner channel is a future dependency",
+    "trusted principal context is a future dependency",
+    "objective store/versioning is a future dependency",
+    "durable agent lifecycle history is a future dependency (CR-04)",
+    "denial store/intent architecture is a future dependency (CC-02)",
+    "protected-target gate remains separate",
+    "ToolRegistry declarations remain a trust dependency",
+    "revocation cannot retroactively stop an external effect already completed",
+    "tool under-declaration risk remains unresolved",
+    "OQ-10 remains OPEN",
+    "no P5 execution protocol exists in v0.2.5"
+  ],
+  "authority_algebra_reconfirmed": [
+    "child.scope <= parent.redelegable_scope",
+    "child.redelegable_scope <= child.scope",
+    "Authority(leaf) <= ... <= Authority(root) <= Human Owner authorization",
+    "effective_root_authority <= owner_authorized_scope",
+    "effective_root_authority <= system_policy_ceiling",
+    "no lineage => bottom (NO AUTHORITY)"
+  ]
+}
