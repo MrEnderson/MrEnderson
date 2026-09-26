@@ -1,0 +1,178 @@
+{
+  "product": "Jarvis OS",
+  "version": "v0.2.6",
+  "subsystem": "Context Broker + Provenance + Data Boundaries (security design)",
+  "status": "DESIGN_FROZEN",
+  "design_revision": "r10",
+  "freeze_date": "2026-09-26",
+  "freeze_record": "docs/V0_2_6_DESIGN_FREEZE_RECORD.md",
+  "freeze_validator": "scripts/check_v026_design_freeze.py",
+  "freeze_tag": "v0.2.6-design-freeze",
+  "predecessor_version": "v0.2.5.1",
+  "predecessor_tag": "v0.2.5.1",
+  "predecessor_commit": "13796dcd61015098429f343e2fb982a9c75698bb",
+  "controlling_review": "HR12",
+  "controlling_review_final_status": "R10 DESIGN READY FOR OWNER FREEZE DECISION",
+  "human_owner_freeze_authorization": "GRANTED",
+  "design_frozen": true,
+  "design_modified_during_freeze": false,
+  "hash_algorithm": "sha256",
+  "hash_canonicalization": "CRLF normalized to LF; any remaining CR byte is a failure. The reviewed files are pure LF, so the canonical bytes are exactly the HR12-reviewed bytes and the committed Git blobs.",
+  "frozen_artifacts": [
+    {
+      "path": "docs/V0_2_6_CONTEXT_BROKER_PROVENANCE_AND_DATA_BOUNDARIES_SECURITY_DESIGN.md",
+      "role": "DESIGN_R10",
+      "lines": 8397,
+      "sha256": "f934f3ec91365a63c6e27a9dcf1d17d08083866ff704bda3d9def0918d38e0b4",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_INDEPENDENT_HOSTILE_SECURITY_REVIEW.md",
+      "role": "HR2",
+      "lines": 1357,
+      "sha256": "ec7d9f3174fd61ae512f4562a5d91285b41a26e3bf96b13fde0af9eec94b9b2e",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_FRESH_INDEPENDENT_SECURITY_VERIFICATION.md",
+      "role": "HR3",
+      "lines": 1352,
+      "sha256": "081c8993bb7573b2a54cee65da57a08ae45c167bd23ebb2785252a5b2e40ee58",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_POST_CORRECTION_SECURITY_VERIFICATION.md",
+      "role": "HR4",
+      "lines": 1474,
+      "sha256": "d6a761010337579636897b591eca825b254a18a49d301d468a7e24e6126f379c",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_HR5_POST_CORRECTION_SECURITY_VERIFICATION.md",
+      "role": "HR5",
+      "lines": 1384,
+      "sha256": "921f4e83d9bce3ecf6182162d8657407672ce3a38d8f30ac5a0d78c4ec5ed9cd",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_HR6_FINAL_DESIGN_VERIFICATION.md",
+      "role": "HR6",
+      "lines": 1372,
+      "sha256": "42b170a580dba800fa310735c4ca0267083aa2beab0fb033fbebeeb289b4f07e",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_HR7_FINAL_FREEZE_VERIFICATION.md",
+      "role": "HR7",
+      "lines": 1179,
+      "sha256": "91e8d19eec8e98f38e7203b1f58d5181c2f25329c094de32fef53575fcecad64",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_HR8_FREEZE_VERIFICATION.md",
+      "role": "HR8",
+      "lines": 1256,
+      "sha256": "9848284e796f548b0012aa509de3b7a4cc3480f9fa5bad437020abf3d1b9aee7",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_HR9_FREEZE_VERIFICATION.md",
+      "role": "HR9",
+      "lines": 1266,
+      "sha256": "e8fcf9a2eb2598910b08c4cb64bc2c9d87c02ead5304743f6fb1c05f6ed73d15",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_HR10_FINAL_FREEZE_VERIFICATION.md",
+      "role": "HR10",
+      "lines": 1227,
+      "sha256": "a29b3e505313bab315c2f97ef780237cd401c5b844a1fc45848fad7f192c31a8",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_HR11_FINAL_FREEZE_VERIFICATION.md",
+      "role": "HR11",
+      "lines": 1165,
+      "sha256": "1ba2b13a59bad759de0de5029c9cd8fc800d957c3cc981f9538fd2757ee553eb",
+      "hash_source": "HR12 section 2"
+    },
+    {
+      "path": "docs/V0_2_6_HR12_FINAL_FREEZE_VERIFICATION.md",
+      "role": "HR12",
+      "lines": 1101,
+      "sha256": "bf3d9c33e5a4b0c0a91908af2bae14e16562497358895169e0362d9eb1722b61",
+      "hash_source": "computed at freeze (HR12 as reviewed by the Human Owner)"
+    }
+  ],
+  "hr12_finding_counts": {
+    "CRITICAL": 0,
+    "HIGH": 0,
+    "MEDIUM": 0,
+    "LOW": 2,
+    "INFO": 2
+  },
+  "design_freeze_blockers": [],
+  "accepted_residual_findings": [
+    {
+      "id": "HR12-01",
+      "severity": "LOW",
+      "title": "Multi-chain merge continuation is contemplated but undefined, and its refusal rule is not isolation-accounted",
+      "owner_disposition": "ACCEPTED_NON_FREEZE_BLOCKING",
+      "freeze_blocker": false,
+      "implementation_blocker": true,
+      "deployment_blocker": false,
+      "folded_into_frozen_text": false,
+      "implementation_constraint": "CR-TASK-01 Scheduler and CR-ESC-01 ESC Issuer must implement |chain_predecessor_esc_ids| = 1 for every RETRY/CONTINUATION and refuse any relation with a larger chain set (ESC_RELATION_UNTRUSTED), unless HR12-01 option (b) multi-chain merge semantics are separately designed, hostile-reviewed and Human-Owner-approved."
+    },
+    {
+      "id": "HR12-02",
+      "severity": "LOW",
+      "title": "Fork checkpoint lateness tolerance undefined",
+      "owner_disposition": "ACCEPTED_NON_FREEZE_BLOCKING",
+      "freeze_blocker": false,
+      "implementation_blocker": true,
+      "deployment_blocker": false,
+      "folded_into_frozen_text": false,
+      "implementation_constraint": "CR-TASK-01 Scheduler and CR-ESC-01 ESC Issuer must: fix a TCB tolerance delta; evaluate the fork predicate over the source's state as of the checkpoint instant; require ForkAuthorization.created_at <= instant + delta, else record SKIPPED; require the FORK ESC transaction within delta-prime of the authorization, else it expires unused; have the ESC Issuer verify both; evaluate each checkpoint independently of earlier SKIPPED ones."
+    }
+  ],
+  "carried_info_findings": [
+    {
+      "id": "HR12-03",
+      "severity": "INFO",
+      "freeze_blocker": false,
+      "implementation_blocker": false,
+      "deployment_blocker": false,
+      "folded_into_frozen_text": false
+    },
+    {
+      "id": "HR12-04",
+      "severity": "INFO",
+      "freeze_blocker": false,
+      "implementation_blocker": false,
+      "deployment_blocker": false,
+      "folded_into_frozen_text": false
+    }
+  ],
+  "implementation_authorized": false,
+  "production_code_created": false,
+  "pipeline_integration_authorized": false,
+  "runtime_integration_authorized": false,
+  "migration_authorized": false,
+  "dependency_changes_authorized": false,
+  "configuration_changes_authorized": false,
+  "env_changes_authorized": false,
+  "provider_enablement_authorized": false,
+  "tool_enablement_authorized": false,
+  "opendex_changes_authorized": false,
+  "deployment_authorized": false,
+  "frozen_validator_changes_authorized": false,
+  "v0_2_7_authorized": false,
+  "alembic_head_expected": "7f2c9a1e4b6d",
+  "tool_adapters_expected": [
+    "file.create_sandboxed"
+  ],
+  "forbidden_implementation_path_patterns": [
+    "app/context*"
+  ]
+}
